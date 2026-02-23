@@ -30,6 +30,44 @@ func HandleCreateOrder(client *hubhandlers.Client, hub *hubhandlers.Hub, logger 
 		return
 	}
 
+	// Get user ID from client session (set during auth)
+	userID := client.UserID
+	if userID == "" {
+		logger.Error("User not authenticated (no UserID in client session)")
+
+		errorMsg := hubhandlers.Message{
+			Intent:    constants.IntentError,
+			Data:      map[string]string{"message": "User not authenticated"},
+			Timestamp: time.Now().Unix(),
+			ClientID:  client.ID,
+		}
+		client.Send <- errorMsg.ToJSON()
+		return
+	}
+
+	// Check if user already has active order
+	existingState := hub.GetUserActiveOrder(userID)
+	if existingState != nil {
+		// User already has active order!
+		logger.Info(fmt.Sprintf("User %s tried to create order while having active order %d",
+			userID, existingState.OrderID))
+
+		// Send existing order info (don't send error, send state sync)
+		syncMsg := hubhandlers.Message{
+			Intent: "existing_order_found",
+			Data: map[string]interface{}{
+				"order_id": existingState.OrderID,
+				"status":   existingState.Status,
+				"ui_state": existingState.UIState,
+				"message":  "You already have an active order",
+			},
+			Timestamp: time.Now().Unix(),
+			ClientID:  client.ID,
+		}
+		client.Send <- syncMsg.ToJSON()
+		return
+	}
+
 	// Convert the order data to CreateOrderRequest struct
 	createOrderReq := models.CreateOrderRequest{}
 
@@ -182,17 +220,13 @@ func HandleCreateOrder(client *hubhandlers.Client, hub *hubhandlers.Hub, logger 
 	}
 	createOrderReq.Payment = payment
 
-	// Extract optional user_id if provided
-	userID, ok := orderData["user_id"].(string)
-	if !ok {
-		// Generate a temporary user ID if not provided
-		userID = fmt.Sprintf("user_%s", client.ID[:8])
-	}
-	createOrderReq.UserID = userID
+	// Note: We don't use user_id from request data anymore
+	// User ID is extracted from client session (set during auth)
+	// The userID variable is already declared at the top of the function
 
 	// Create a new order
 	order := models.Order{
-		UserID:               createOrderReq.UserID,
+		UserID:               userID, // Use userID from client session
 		Pickup:               createOrderReq.Pickup,
 		PickupLatitude:       createOrderReq.PickupLatitude,
 		PickupLongitude:      createOrderReq.PickupLongitude,
@@ -238,21 +272,30 @@ func HandleCreateOrder(client *hubhandlers.Client, hub *hubhandlers.Hub, logger 
 	// Set client-order mapping in Hub (also stores in Redis)
 	hub.SetClientOrder(client, order.ID)
 
-	// Send success response back to the client who created the order
+	// Update UserOrders state (for multi-tab sync)
+	hub.SetUserOrderState(userID, order.ID, order.Status, "waiting_bids")
+
+	// Send success response to ALL user's connections (including this one)
 	successMsg := hubhandlers.Message{
 		Intent:    constants.IntentOrderCreated,
 		Data:      order.ID,
 		Timestamp: time.Now().Unix(),
-		ClientID:  client.ID,
 	}
-	client.Send <- successMsg.ToJSON()
+	hub.BroadcastToUser(userID, successMsg)
 
-	// Broadcast order notification to other clients (drivers)
+	// Broadcast order notification to drivers (NOT to user's other tabs)
 	broadcastMsg := hubhandlers.Message{
 		Intent:    constants.IntentNewOrderAvailable,
 		Data:      order,
 		Timestamp: time.Now().Unix(),
-		ClientID:  client.ID,
 	}
-	hub.BroadcastMessage(broadcastMsg)
+
+	// Send to all clients EXCEPT this user's connections
+	hub.Mu.RLock()
+	for c := range hub.Clients {
+		if c.UserID != userID { // Skip user's own connections
+			c.Send <- broadcastMsg.ToJSON()
+		}
+	}
+	hub.Mu.RUnlock()
 }

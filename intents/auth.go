@@ -47,6 +47,26 @@ func HandleAuth(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.
 		}
 		logger.Info(fmt.Sprintf("User logged in: %s (%s)", existingUser.Email, existingUser.Role))
 
+		// Associate client with user
+		hub.AssociateClientWithUser(client, firebaseUID)
+
+		// Check if user has active order and sync state
+		userState := hub.GetUserOrderState(firebaseUID)
+		if userState != nil {
+			// Sync existing order state to this connection
+			syncMsg := hubhandlers.Message{
+				Intent: "order_state_sync",
+				Data: map[string]interface{}{
+					"order_id": userState.OrderID,
+					"status":   userState.Status,
+					"ui_state": userState.UIState,
+				},
+				Timestamp: time.Now().Unix(),
+			}
+			client.Send <- syncMsg.ToJSON()
+			logger.Info(fmt.Sprintf("Synced order state to user %s: %s", firebaseUID, userState.UIState))
+		}
+
 		// Send success response with user data
 		successMsg := hubhandlers.Message{
 			Intent: constants.IntentAuthSuccess,

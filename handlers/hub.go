@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -18,10 +19,19 @@ type Client struct {
 	Conn      *websocket.Conn
 	Send      chan []byte
 	OrderID   *int64  // Current active order ID (stored in Redis, cached here)
-	UserID    string  // User identifier
+	UserID    string  // User identifier (Firebase UID)
 	Role      string  // "customer" | "driver"
 	mu        sync.Mutex // Mutex to prevent concurrent close
 	closed    bool
+}
+
+// UserOrderState represents the current order state for a user
+type UserOrderState struct {
+	OrderID       int64
+	Status        string // pending, accepted, in_progress, completed, cancelled
+	UIState       string // booking, waiting_bids, driver_assigned, completed, cancelled
+	CreatedAt     int64
+	LastUpdatedAt int64
 }
 
 // Hub manages all connected clients and broadcasts messages
@@ -41,6 +51,12 @@ type Hub struct {
 	// Mutex for thread-safe operations
 	Mu sync.RWMutex
 
+	// Track connections per user (userID -> set of clients)
+	UserConnections map[string]map[*Client]bool
+
+	// Track order state per user (userID -> order state)
+	UserOrders map[string]*UserOrderState
+
 	// Redis client for order storage
 	OrderRedis *redis.OrderRedis
 	BidRedis   *redis.BidRedis
@@ -49,22 +65,26 @@ type Hub struct {
 // NewHub creates a new hub instance
 func NewHub() *Hub {
 	return &Hub{
-		Broadcast:  make(chan []byte),
-		Register:   make(chan *Client),
-		Unregister: make(chan *Client),
-		Clients:    make(map[*Client]bool),
+		Broadcast:       make(chan []byte),
+		Register:        make(chan *Client),
+		Unregister:      make(chan *Client),
+		Clients:         make(map[*Client]bool),
+		UserConnections: make(map[string]map[*Client]bool),
+		UserOrders:      make(map[string]*UserOrderState),
 	}
 }
 
 // NewHubWithRedis creates a new hub instance with Redis repositories
 func NewHubWithRedis(orderRedis *redis.OrderRedis, bidRedis *redis.BidRedis) *Hub {
 	return &Hub{
-		Broadcast:  make(chan []byte),
-		Register:   make(chan *Client),
-		Unregister: make(chan *Client),
-		Clients:    make(map[*Client]bool),
-		OrderRedis: orderRedis,
-		BidRedis:   bidRedis,
+		Broadcast:       make(chan []byte),
+		Register:        make(chan *Client),
+		Unregister:      make(chan *Client),
+		Clients:         make(map[*Client]bool),
+		UserConnections: make(map[string]map[*Client]bool),
+		UserOrders:      make(map[string]*UserOrderState),
+		OrderRedis:      orderRedis,
+		BidRedis:        bidRedis,
 	}
 }
 
@@ -228,6 +248,128 @@ func (h *Hub) ClearClientOrder(client *Client) {
 				ctx,
 				fmt.Sprintf("order:client:%s", orderIDStr),
 			)
+		}
+	}
+}
+
+// AssociateClientWithUser links a client connection to a user ID
+func (h *Hub) AssociateClientWithUser(client *Client, userID string) {
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+
+	if h.UserConnections == nil {
+		h.UserConnections = make(map[string]map[*Client]bool)
+	}
+
+	if h.UserConnections[userID] == nil {
+		h.UserConnections[userID] = make(map[*Client]bool)
+	}
+
+	h.UserConnections[userID][client] = true
+	client.UserID = userID
+
+	log.Printf("Client %s associated with user %s. Total connections for user: %d",
+		client.ID, userID, len(h.UserConnections[userID]))
+}
+
+// RemoveClientFromUser removes a client from user's connections (called on disconnect)
+func (h *Hub) RemoveClientFromUser(client *Client) {
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+
+	if client.UserID == "" {
+		return
+	}
+
+	if h.UserConnections[client.UserID] != nil {
+		delete(h.UserConnections[client.UserID], client)
+
+		// If no more connections for this user, cleanup
+		if len(h.UserConnections[client.UserID]) == 0 {
+			delete(h.UserConnections, client.UserID)
+			log.Printf("User %s has no more active connections", client.UserID)
+		}
+	}
+}
+
+// SetUserOrderState updates or creates order state for a user
+func (h *Hub) SetUserOrderState(userID string, orderID int64, status string, uiState string) {
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+
+	if h.UserOrders == nil {
+		h.UserOrders = make(map[string]*UserOrderState)
+	}
+
+	h.UserOrders[userID] = &UserOrderState{
+		OrderID:       orderID,
+		Status:        status,
+		UIState:       uiState,
+		CreatedAt:     time.Now().Unix(),
+		LastUpdatedAt: time.Now().Unix(),
+	}
+
+	log.Printf("Order state set for user %s: order=%d, status=%s, ui=%s",
+		userID, orderID, status, uiState)
+}
+
+// GetUserOrderState retrieves order state for a user
+func (h *Hub) GetUserOrderState(userID string) *UserOrderState {
+	h.Mu.RLock()
+	defer h.Mu.RUnlock()
+
+	if h.UserOrders == nil {
+		return nil
+	}
+
+	return h.UserOrders[userID]
+}
+
+// ClearUserOrderState clears order state for a user (after cancel/complete)
+func (h *Hub) ClearUserOrderState(userID string) {
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+
+	if h.UserOrders != nil {
+		delete(h.UserOrders, userID)
+		log.Printf("Order state cleared for user %s", userID)
+	}
+}
+
+// GetUserActiveOrder checks if user has an active order (not completed/cancelled)
+func (h *Hub) GetUserActiveOrder(userID string) *UserOrderState {
+	h.Mu.RLock()
+	defer h.Mu.RUnlock()
+
+	if h.UserOrders == nil {
+		return nil
+	}
+
+	state := h.UserOrders[userID]
+	if state == nil {
+		return nil
+	}
+
+	// Check if order is still active (not completed/cancelled)
+	if state.Status == "completed" || state.Status == "cancelled" {
+		return nil
+	}
+
+	return state
+}
+
+// BroadcastToUser sends message to all connections of a specific user
+func (h *Hub) BroadcastToUser(userID string, msg Message) {
+	h.Mu.RLock()
+	defer h.Mu.RUnlock()
+
+	connections := h.UserConnections[userID]
+	for client := range connections {
+		select {
+		case client.Send <- msg.ToJSON():
+		default:
+			// Client buffer full, skip
+			log.Printf("Failed to send to client %s, buffer full", client.ID)
 		}
 	}
 }

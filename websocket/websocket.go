@@ -123,6 +123,13 @@ func listenForMessages(client *hubhandlers.Client, hub *hubhandlers.Hub, logger 
 	defer func() {
 		// Ensure client is unregistered and connection is closed
 		hub.Unregister <- client
+		
+		// Remove from user connections if associated with a user
+		if client.UserID != "" {
+			hub.RemoveClientFromUser(client)
+			logger.Info(fmt.Sprintf("Client %s disconnected from user %s", client.ID, client.UserID))
+		}
+		
 		client.Close()
 	}()
 

@@ -130,6 +130,11 @@ func HandleCancelOrder(client *hubhandlers.Client, hub *hubhandlers.Hub, logger 
 	// Clear client-order mapping in Hub
 	hub.ClearClientOrder(client)
 
+	// Clear UserOrders state (user can create new order now)
+	if client.UserID != "" {
+		hub.ClearUserOrderState(client.UserID)
+	}
+
 	// Send success response back to the client who cancelled the order
 	successMsg := hubhandlers.Message{
 		Intent: constants.IntentOrderCancelled,
