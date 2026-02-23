@@ -10,11 +10,11 @@ import (
 
 // UserRepository handles user database operations
 type UserRepository struct {
-	db *sql.DB
+	db *DB
 }
 
 // NewUserRepository creates a new UserRepository
-func NewUserRepository(db *sql.DB) *UserRepository {
+func NewUserRepository(db *DB) *UserRepository {
 	return &UserRepository{db: db}
 }
 
@@ -28,7 +28,7 @@ func (r *UserRepository) CreateUser(user *models.User) error {
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := r.db.Exec(query,
+	_, err := r.db.DB.Exec(query,
 		user.ID,
 		user.Email,
 		user.DisplayName,
@@ -64,7 +64,7 @@ func (r *UserRepository) GetUserByID(id string) (*models.User, error) {
 	user := &models.User{}
 	var lastLoginAt sql.NullInt64
 
-	err := r.db.QueryRow(query, id).Scan(
+	err := r.db.DB.QueryRow(query, id).Scan(
 		&user.ID,
 		&user.Email,
 		&user.DisplayName,
@@ -109,7 +109,7 @@ func (r *UserRepository) GetUserByEmail(email string) (*models.User, error) {
 	user := &models.User{}
 	var lastLoginAt sql.NullInt64
 
-	err := r.db.QueryRow(query, email).Scan(
+	err := r.db.DB.QueryRow(query, email).Scan(
 		&user.ID,
 		&user.Email,
 		&user.DisplayName,
@@ -151,7 +151,7 @@ func (r *UserRepository) UpdateUser(user *models.User) error {
 	WHERE id = ?
 	`
 
-	_, err := r.db.Exec(query,
+	_, err := r.db.DB.Exec(query,
 		user.Email,
 		user.DisplayName,
 		user.PhotoURL,
@@ -176,7 +176,7 @@ func (r *UserRepository) UpdateUser(user *models.User) error {
 func (r *UserRepository) UpdateLastLogin(id string) error {
 	query := `UPDATE jetlink_users SET last_login_at = NOW(), updated_at = NOW() WHERE id = ?`
 
-	_, err := r.db.Exec(query, id)
+	_, err := r.db.DB.Exec(query, id)
 
 	if err != nil {
 		return fmt.Errorf("failed to update last login: %v", err)
@@ -197,7 +197,7 @@ func (r *UserRepository) RegisterDriver(user *models.User) error {
 	WHERE id = ?
 	`
 
-	_, err := r.db.Exec(query,
+	_, err := r.db.DB.Exec(query,
 		user.VehicleType,
 		user.VehiclePlate,
 		time.Now().Unix(),
@@ -229,7 +229,7 @@ func (r *UserRepository) IsDriverRegistered(id string) (bool, error) {
 func (r *UserRepository) DeleteUser(id string) error {
 	query := `DELETE FROM jetlink_users WHERE id = ?`
 
-	_, err := r.db.Exec(query, id)
+	_, err := r.db.DB.Exec(query, id)
 
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %v", err)
