@@ -174,15 +174,81 @@ func HandleCompleteProfile(client *hubhandlers.Client, hub *hubhandlers.Hub, log
 	photoURL, _ := profileData["photoURL"].(string)
 	phoneNumber, _ := profileData["phoneNumber"].(string)
 
-	// Check if user already exists
-	existingUser, err := userRepo.GetUserByID(firebaseUID)
+	// Check if user already exists by Firebase UID
+	existingUserByUID, err := userRepo.GetUserByID(firebaseUID)
 	if err != nil {
-		logger.Error(fmt.Sprintf("Failed to check existing user: %v", err))
+		logger.Error(fmt.Sprintf("Failed to check existing user by UID: %v", err))
 	}
 
-	if existingUser != nil {
-		logger.Error("User already exists")
-		sendError(client, "User already exists", incomingMsg)
+	if existingUserByUID != nil {
+		logger.Info(fmt.Sprintf("User with UID %s already exists, returning existing user", firebaseUID))
+		// User already exists, return success with existing user data
+		successMsg := hubhandlers.Message{
+			Intent: constants.IntentAuthSuccess,
+			Data: map[string]interface{}{
+				"user": map[string]interface{}{
+					"id":           existingUserByUID.ID,
+					"email":        existingUserByUID.Email,
+					"displayName":  existingUserByUID.DisplayName,
+					"photoURL":     existingUserByUID.PhotoURL,
+					"role":         existingUserByUID.Role,
+					"isVerified":   existingUserByUID.IsVerified,
+					"vehicleType":  existingUserByUID.VehicleType,
+					"vehiclePlate": existingUserByUID.VehiclePlate,
+				},
+				"message": "User already exists",
+			},
+			Timestamp: time.Now().Unix(),
+			ClientID:  client.ID,
+		}
+		client.Send <- successMsg.ToJSON()
+		return
+	}
+
+	// Check if email already exists (different Firebase UID but same email)
+	existingUserByEmail, err := userRepo.GetUserByEmail(email)
+	if err != nil {
+		logger.Error(fmt.Sprintf("Failed to check existing user by email: %v", err))
+	}
+
+	if existingUserByEmail != nil {
+		logger.Info(fmt.Sprintf("User with email %s already exists, updating Firebase UID", email))
+		
+		// Update the existing user's Firebase UID
+		existingUserByEmail.ID = firebaseUID
+		existingUserByEmail.PhotoURL = photoURL
+		if phoneNumber != "" {
+			existingUserByEmail.PhoneNumber = phoneNumber
+		}
+		existingUserByEmail.UpdatedAt = time.Now().Unix()
+		
+		err = userRepo.UpdateUser(existingUserByEmail)
+		if err != nil {
+			logger.Error(fmt.Sprintf("Failed to update user: %v", err))
+			sendError(client, fmt.Sprintf("Failed to update user: %v", err), incomingMsg)
+			return
+		}
+
+		// Send success response with updated user data
+		successMsg := hubhandlers.Message{
+			Intent: constants.IntentAuthSuccess,
+			Data: map[string]interface{}{
+				"user": map[string]interface{}{
+					"id":           existingUserByEmail.ID,
+					"email":        existingUserByEmail.Email,
+					"displayName":  existingUserByEmail.DisplayName,
+					"photoURL":     existingUserByEmail.PhotoURL,
+					"role":         existingUserByEmail.Role,
+					"isVerified":   existingUserByEmail.IsVerified,
+					"vehicleType":  existingUserByEmail.VehicleType,
+					"vehiclePlate": existingUserByEmail.VehiclePlate,
+				},
+				"message": "Profile updated successfully",
+			},
+			Timestamp: time.Now().Unix(),
+			ClientID:  client.ID,
+		}
+		client.Send <- successMsg.ToJSON()
 		return
 	}
 
@@ -204,7 +270,13 @@ func HandleCompleteProfile(client *hubhandlers.Client, hub *hubhandlers.Hub, log
 	err = userRepo.CreateUser(user)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to create user: %v", err))
-		sendError(client, fmt.Sprintf("Failed to create user: %v", err), incomingMsg)
+		
+		// Check if it's a duplicate email error
+		if err.Error() != "" && contains(err.Error(), "Duplicate entry") && contains(err.Error(), "email") {
+			sendError(client, "Email already registered. Please use a different email or login with your existing account.", incomingMsg)
+		} else {
+			sendError(client, fmt.Sprintf("Failed to create user: %v", err), incomingMsg)
+		}
 		return
 	}
 
@@ -230,6 +302,20 @@ func HandleCompleteProfile(client *hubhandlers.Client, hub *hubhandlers.Hub, log
 		ClientID:  client.ID,
 	}
 	client.Send <- successMsg.ToJSON()
+}
+
+// Helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // HandleDriverRegistration handles driver registration
