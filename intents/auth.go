@@ -70,14 +70,63 @@ func HandleAuth(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.
 		return
 	}
 
-	// User doesn't exist, check if we have complete profile data
+	// User doesn't exist by Firebase UID, check if we have complete profile data
 	email, _ := authData["email"].(string)
 	displayName, _ := authData["displayName"].(string)
 	photoURL, _ := authData["photoURL"].(string)
 	phoneNumber, _ := authData["phoneNumber"].(string)
 
-	// If we have all required data, create user
+	// If we have all required data, check if user exists by email first
 	if email != "" && displayName != "" {
+		// Check if user already exists by email
+		existingUserByEmail, err := userRepo.GetUserByEmail(email)
+		if err != nil {
+			logger.Error(fmt.Sprintf("Failed to check existing user by email: %v", err))
+		}
+
+		if existingUserByEmail != nil {
+			// User already exists with this email, update Firebase UID
+			logger.Info(fmt.Sprintf("User already exists with email %s, updating Firebase UID", email))
+			
+			existingUserByEmail.ID = firebaseUID
+			existingUserByEmail.PhotoURL = photoURL
+			if phoneNumber != "" {
+				existingUserByEmail.PhoneNumber = phoneNumber
+			}
+			existingUserByEmail.UpdatedAt = time.Now().Unix()
+			
+			err = userRepo.UpdateUser(existingUserByEmail)
+			if err != nil {
+				logger.Error(fmt.Sprintf("Failed to update user Firebase UID: %v", err))
+			}
+
+			// Update last login
+			userRepo.UpdateLastLogin(firebaseUID)
+
+			// Send success response
+			successMsg := hubhandlers.Message{
+				Intent: constants.IntentAuthSuccess,
+				Data: map[string]interface{}{
+					"user": map[string]interface{}{
+						"id":           existingUserByEmail.ID,
+						"email":        existingUserByEmail.Email,
+						"displayName":  existingUserByEmail.DisplayName,
+						"photoURL":     existingUserByEmail.PhotoURL,
+						"role":         existingUserByEmail.Role,
+						"isVerified":   existingUserByEmail.IsVerified,
+						"vehicleType":  existingUserByEmail.VehicleType,
+						"vehiclePlate": existingUserByEmail.VehiclePlate,
+					},
+					"message": "User already exists",
+				},
+				Timestamp: time.Now().Unix(),
+				ClientID:  client.ID,
+			}
+			client.Send <- successMsg.ToJSON()
+			return
+		}
+
+		// User doesn't exist, create new user
 		user := &models.User{
 			ID:            firebaseUID,
 			Email:         email,
@@ -121,21 +170,22 @@ func HandleAuth(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.
 			ClientID:  client.ID,
 		}
 		client.Send <- successMsg.ToJSON()
-	} else {
-		// Profile data incomplete, request complete profile
-		logger.Info(fmt.Sprintf("User %s needs to complete profile", firebaseUID))
-
-		profileMsg := hubhandlers.Message{
-			Intent: constants.IntentAuthProfileNeeded,
-			Data: map[string]interface{}{
-				"uid":     firebaseUID,
-				"message": "Please complete your profile",
-			},
-			Timestamp: time.Now().Unix(),
-			ClientID:  client.ID,
-		}
-		client.Send <- profileMsg.ToJSON()
+		return
 	}
+
+	// Profile data incomplete, request complete profile
+	logger.Info(fmt.Sprintf("User %s needs to complete profile", firebaseUID))
+
+	profileMsg := hubhandlers.Message{
+		Intent: constants.IntentAuthProfileNeeded,
+		Data: map[string]interface{}{
+			"uid":     firebaseUID,
+			"message": "Please complete your profile",
+		},
+		Timestamp: time.Now().Unix(),
+		ClientID:  client.ID,
+	}
+	client.Send <- profileMsg.ToJSON()
 }
 
 // HandleCompleteProfile handles completing user profile after initial login
