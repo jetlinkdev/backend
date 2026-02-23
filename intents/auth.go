@@ -53,18 +53,35 @@ func HandleAuth(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.
 		// Check if user has active order and sync state
 		userState := hub.GetUserOrderState(firebaseUID)
 		if userState != nil {
-			// Sync existing order state to this connection
-			syncMsg := hubhandlers.Message{
-				Intent: "order_state_sync",
-				Data: map[string]interface{}{
-					"order_id": userState.OrderID,
-					"status":   userState.Status,
-					"ui_state": userState.UIState,
-				},
-				Timestamp: time.Now().Unix(),
+			// Get full order data from database
+			order, err := repo.GetOrder(userState.OrderID)
+			if err != nil {
+				logger.Error(fmt.Sprintf("Failed to get order %d for user %s: %v", userState.OrderID, firebaseUID, err))
+			} else {
+				// Sync existing order state and data to this connection
+				syncMsg := hubhandlers.Message{
+					Intent: "order_state_sync",
+					Data: map[string]interface{}{
+						"order_id":                 order.ID,
+						"status":                   order.Status,
+						"ui_state":                 userState.UIState,
+						"pickup":                   order.Pickup,
+						"pickup_latitude":          order.PickupLatitude,
+						"pickup_longitude":         order.PickupLongitude,
+						"destination":              order.Destination,
+						"destination_latitude":     order.DestinationLatitude,
+						"destination_longitude":    order.DestinationLongitude,
+						"notes":                    order.Notes,
+						"payment":                  order.Payment,
+						"fare":                     order.Fare,
+						"bid_price":                order.BidPrice,
+						"estimated_arrival_time":   order.EstimatedArrivalTime,
+					},
+					Timestamp: time.Now().Unix(),
+				}
+				client.Send <- syncMsg.ToJSON()
+				logger.Info(fmt.Sprintf("Synced order %d state to user %s: %s", order.ID, firebaseUID, userState.UIState))
 			}
-			client.Send <- syncMsg.ToJSON()
-			logger.Info(fmt.Sprintf("Synced order state to user %s: %s", firebaseUID, userState.UIState))
 		}
 
 		// Send success response with user data
