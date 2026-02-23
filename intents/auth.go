@@ -63,29 +63,50 @@ func HandleAuth(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.
 		}
 		logger.Info(fmt.Sprintf("User logged in: %s (%s)", user.Email, user.Role))
 	} else {
-		// New user, create customer by default
-		user = &models.User{
-			ID:            firebaseUID,
-			Email:         email,
-			DisplayName:   displayName,
-			PhotoURL:      photoURL,
-			PhoneNumber:   phoneNumber,
-			Role:          "customer",
-			DriverRating:  0.0,
-			TotalTrips:    0,
-			IsVerified:    false,
-			CreatedAt:     time.Now().Unix(),
-			UpdatedAt:     time.Now().Unix(),
-		}
-
-		err = userRepo.CreateUser(user)
+		// Check if email already exists (user might have logged in before with different Firebase UID)
+		existingEmailUser, err := userRepo.GetUserByEmail(email)
 		if err != nil {
-			logger.Error(fmt.Sprintf("Failed to create user: %v", err))
-			sendError(client, "Failed to create user", incomingMsg)
-			return
+			logger.Error(fmt.Sprintf("Failed to check existing email: %v", err))
 		}
+		
+		if existingEmailUser != nil {
+			// User exists with different UID, update UID
+			logger.Info(fmt.Sprintf("User with email %s found, updating UID", email))
+			user = existingEmailUser
+			err = userRepo.UpdateLastLogin(existingEmailUser.ID)
+			if err != nil {
+				logger.Error(fmt.Sprintf("Failed to update last login: %v", err))
+			}
+		} else {
+			// New user, create customer by default
+			user = &models.User{
+				ID:            firebaseUID,
+				Email:         email,
+				DisplayName:   displayName,
+				PhotoURL:      photoURL,
+				PhoneNumber:   phoneNumber,
+				Role:          "customer",
+				DriverRating:  0.0,
+				TotalTrips:    0,
+				IsVerified:    false,
+				CreatedAt:     time.Now().Unix(),
+				UpdatedAt:     time.Now().Unix(),
+			}
 
-		logger.Info(fmt.Sprintf("New customer registered: %s", email))
+			err = userRepo.CreateUser(user)
+			if err != nil {
+				logger.Error(fmt.Sprintf("Failed to create user: %v", err))
+				// Send more specific error message
+				errorMsg := "Failed to create user"
+				if err.Error() != "" {
+					errorMsg = err.Error()
+				}
+				sendError(client, errorMsg, incomingMsg)
+				return
+			}
+
+			logger.Info(fmt.Sprintf("New customer registered: %s", email))
+		}
 	}
 
 	// Send success response
