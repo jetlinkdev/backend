@@ -21,6 +21,9 @@ const (
 	
 	// Authentication intents
 	IntentAuth               = "auth"
+	IntentAuthSuccess        = "auth_success"
+	IntentAuthProfileNeeded  = "auth_profile_needed"
+	IntentCompleteProfile    = "complete_profile"
 	IntentDriverRegistration = "driver_registration"
 	IntentDriverRegistered   = "driver_registered"
 	IntentCheckDriverStatus  = "check_driver_status"

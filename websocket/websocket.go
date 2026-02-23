@@ -186,6 +186,8 @@ func listenForMessages(client *hubhandlers.Client, hub *hubhandlers.Hub, logger 
 		switch incomingMsg.Intent {
 		case constants.IntentAuth:
 			intents.HandleAuth(client, hub, logger, incomingMsg, repo)
+		case constants.IntentCompleteProfile:
+			intents.HandleCompleteProfile(client, hub, logger, incomingMsg, repo)
 		case constants.IntentDriverRegistration:
 			intents.HandleDriverRegistration(client, hub, logger, incomingMsg, repo)
 		case constants.IntentCheckDriverStatus:

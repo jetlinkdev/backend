@@ -31,20 +31,7 @@ func HandleAuth(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.
 		return
 	}
 
-	// Extract email
-	email, ok := authData["email"].(string)
-	if !ok || email == "" {
-		logger.Error("Missing or invalid email")
-		sendError(client, "Missing email", incomingMsg)
-		return
-	}
-
-	// Extract optional fields
-	displayName, _ := authData["displayName"].(string)
-	photoURL, _ := authData["photoURL"].(string)
-	phoneNumber, _ := authData["phoneNumber"].(string)
-
-	// Check if user exists
+	// Check if user exists by Firebase UID
 	existingUser, err := userRepo.GetUserByID(firebaseUID)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Failed to get user: %v", err))
@@ -52,78 +39,192 @@ func HandleAuth(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.
 		return
 	}
 
-	var user *models.User
-
 	if existingUser != nil {
 		// User exists, update last login
-		user = existingUser
 		err = userRepo.UpdateLastLogin(firebaseUID)
 		if err != nil {
 			logger.Error(fmt.Sprintf("Failed to update last login: %v", err))
 		}
-		logger.Info(fmt.Sprintf("User logged in: %s (%s)", user.Email, user.Role))
-	} else {
-		// Check if email already exists (user might have logged in before with different Firebase UID)
-		existingEmailUser, err := userRepo.GetUserByEmail(email)
-		if err != nil {
-			logger.Error(fmt.Sprintf("Failed to check existing email: %v", err))
-		}
-		
-		if existingEmailUser != nil {
-			// User exists with different UID, update UID
-			logger.Info(fmt.Sprintf("User with email %s found, updating UID", email))
-			user = existingEmailUser
-			err = userRepo.UpdateLastLogin(existingEmailUser.ID)
-			if err != nil {
-				logger.Error(fmt.Sprintf("Failed to update last login: %v", err))
-			}
-		} else {
-			// New user, create customer by default
-			user = &models.User{
-				ID:            firebaseUID,
-				Email:         email,
-				DisplayName:   displayName,
-				PhotoURL:      photoURL,
-				PhoneNumber:   phoneNumber,
-				Role:          "customer",
-				DriverRating:  0.0,
-				TotalTrips:    0,
-				IsVerified:    false,
-				CreatedAt:     time.Now().Unix(),
-				UpdatedAt:     time.Now().Unix(),
-			}
+		logger.Info(fmt.Sprintf("User logged in: %s (%s)", existingUser.Email, existingUser.Role))
 
-			err = userRepo.CreateUser(user)
-			if err != nil {
-				logger.Error(fmt.Sprintf("Failed to create user: %v", err))
-				// Send more specific error message
-				errorMsg := "Failed to create user"
-				if err.Error() != "" {
-					errorMsg = err.Error()
-				}
-				sendError(client, errorMsg, incomingMsg)
-				return
-			}
-
-			logger.Info(fmt.Sprintf("New customer registered: %s", email))
+		// Send success response with user data
+		successMsg := hubhandlers.Message{
+			Intent: constants.IntentAuthSuccess,
+			Data: map[string]interface{}{
+				"user": map[string]interface{}{
+					"id":           existingUser.ID,
+					"email":        existingUser.Email,
+					"displayName":  existingUser.DisplayName,
+					"photoURL":     existingUser.PhotoURL,
+					"role":         existingUser.Role,
+					"isVerified":   existingUser.IsVerified,
+					"vehicleType":  existingUser.VehicleType,
+					"vehiclePlate": existingUser.VehiclePlate,
+				},
+				"message": "User already exists",
+			},
+			Timestamp: time.Now().Unix(),
+			ClientID:  client.ID,
 		}
+		client.Send <- successMsg.ToJSON()
+		return
 	}
+
+	// User doesn't exist, check if we have complete profile data
+	email, _ := authData["email"].(string)
+	displayName, _ := authData["displayName"].(string)
+	photoURL, _ := authData["photoURL"].(string)
+	phoneNumber, _ := authData["phoneNumber"].(string)
+
+	// If we have all required data, create user
+	if email != "" && displayName != "" {
+		user := &models.User{
+			ID:            firebaseUID,
+			Email:         email,
+			DisplayName:   displayName,
+			PhotoURL:      photoURL,
+			PhoneNumber:   phoneNumber,
+			Role:          "customer",
+			DriverRating:  0.0,
+			TotalTrips:    0,
+			IsVerified:    false,
+			CreatedAt:     time.Now().Unix(),
+			UpdatedAt:     time.Now().Unix(),
+		}
+
+		err = userRepo.CreateUser(user)
+		if err != nil {
+			logger.Error(fmt.Sprintf("Failed to create user: %v", err))
+			sendError(client, fmt.Sprintf("Failed to create user: %v", err), incomingMsg)
+			return
+		}
+
+		logger.Info(fmt.Sprintf("New customer registered: %s", email))
+
+		// Send success response
+		successMsg := hubhandlers.Message{
+			Intent: constants.IntentAuthSuccess,
+			Data: map[string]interface{}{
+				"user": map[string]interface{}{
+					"id":           user.ID,
+					"email":        user.Email,
+					"displayName":  user.DisplayName,
+					"photoURL":     user.PhotoURL,
+					"role":         user.Role,
+					"isVerified":   user.IsVerified,
+					"vehicleType":  user.VehicleType,
+					"vehiclePlate": user.VehiclePlate,
+				},
+				"message": "User created successfully",
+			},
+			Timestamp: time.Now().Unix(),
+			ClientID:  client.ID,
+		}
+		client.Send <- successMsg.ToJSON()
+	} else {
+		// Profile data incomplete, request complete profile
+		logger.Info(fmt.Sprintf("User %s needs to complete profile", firebaseUID))
+
+		profileMsg := hubhandlers.Message{
+			Intent: constants.IntentAuthProfileNeeded,
+			Data: map[string]interface{}{
+				"uid":     firebaseUID,
+				"message": "Please complete your profile",
+			},
+			Timestamp: time.Now().Unix(),
+			ClientID:  client.ID,
+		}
+		client.Send <- profileMsg.ToJSON()
+	}
+}
+
+// HandleCompleteProfile handles completing user profile after initial login
+func HandleCompleteProfile(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.Logger, incomingMsg hubhandlers.Message, repo *database.OrderRepository) {
+	userRepo := database.NewUserRepository(repo.GetDB())
+
+	// Extract profile data
+	profileData, ok := incomingMsg.Data.(map[string]interface{})
+	if !ok {
+		logger.Error("Invalid data format for complete_profile intent")
+		sendError(client, "Invalid data format", incomingMsg)
+		return
+	}
+
+	// Extract Firebase UID
+	firebaseUID, ok := profileData["uid"].(string)
+	if !ok || firebaseUID == "" {
+		logger.Error("Missing or invalid Firebase UID")
+		sendError(client, "Missing Firebase UID", incomingMsg)
+		return
+	}
+
+	// Extract required profile fields
+	email, ok := profileData["email"].(string)
+	if !ok || email == "" {
+		sendError(client, "Missing email", incomingMsg)
+		return
+	}
+
+	displayName, ok := profileData["displayName"].(string)
+	if !ok || displayName == "" {
+		sendError(client, "Missing display name", incomingMsg)
+		return
+	}
+
+	photoURL, _ := profileData["photoURL"].(string)
+	phoneNumber, _ := profileData["phoneNumber"].(string)
+
+	// Check if user already exists
+	existingUser, err := userRepo.GetUserByID(firebaseUID)
+	if err != nil {
+		logger.Error(fmt.Sprintf("Failed to check existing user: %v", err))
+	}
+
+	if existingUser != nil {
+		logger.Error("User already exists")
+		sendError(client, "User already exists", incomingMsg)
+		return
+	}
+
+	// Create new user with complete profile
+	user := &models.User{
+		ID:            firebaseUID,
+		Email:         email,
+		DisplayName:   displayName,
+		PhotoURL:      photoURL,
+		PhoneNumber:   phoneNumber,
+		Role:          "customer",
+		DriverRating:  0.0,
+		TotalTrips:    0,
+		IsVerified:    false,
+		CreatedAt:     time.Now().Unix(),
+		UpdatedAt:     time.Now().Unix(),
+	}
+
+	err = userRepo.CreateUser(user)
+	if err != nil {
+		logger.Error(fmt.Sprintf("Failed to create user: %v", err))
+		sendError(client, fmt.Sprintf("Failed to create user: %v", err), incomingMsg)
+		return
+	}
+
+	logger.Info(fmt.Sprintf("New customer registered with complete profile: %s", email))
 
 	// Send success response
 	successMsg := hubhandlers.Message{
-		Intent: constants.IntentAuth,
+		Intent: constants.IntentAuthSuccess,
 		Data: map[string]interface{}{
 			"user": map[string]interface{}{
-				"id":            user.ID,
-				"email":         user.Email,
-				"displayName":   user.DisplayName,
-				"photoURL":      user.PhotoURL,
-				"role":          user.Role,
-				"isVerified":    user.IsVerified,
-				"vehicleType":   user.VehicleType,
-				"vehiclePlate":  user.VehiclePlate,
+				"id":           user.ID,
+				"email":        user.Email,
+				"displayName":  user.DisplayName,
+				"photoURL":     user.PhotoURL,
+				"role":         user.Role,
+				"isVerified":   user.IsVerified,
+				"vehicleType":  user.VehicleType,
+				"vehiclePlate": user.VehiclePlate,
 			},
-			"message": "Authentication successful",
+			"message": "Profile completed successfully",
 		},
 		Timestamp: time.Now().Unix(),
 		ClientID:  client.ID,
