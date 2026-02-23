@@ -25,7 +25,7 @@ func (r *UserRepository) CreateUser(user *models.User) error {
 		id, email, display_name, photo_url, phone_number, role,
 		vehicle_type, vehicle_plate, driver_rating, total_trips, is_verified,
 		created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?))
 	`
 
 	_, err := r.db.DB.Exec(query,
@@ -147,7 +147,7 @@ func (r *UserRepository) UpdateUser(user *models.User) error {
 	UPDATE jetlink_users
 	SET email = ?, display_name = ?, photo_url = ?, phone_number = ?,
 		vehicle_type = ?, vehicle_plate = ?, driver_rating = ?, total_trips = ?,
-		is_verified = ?, updated_at = ?
+		is_verified = ?, updated_at = FROM_UNIXTIME(?)
 	WHERE id = ?
 	`
 
@@ -193,14 +193,14 @@ func (r *UserRepository) RegisterDriver(user *models.User) error {
 		vehicle_type = ?,
 		vehicle_plate = ?,
 		is_verified = TRUE,
-		updated_at = ?
+		updated_at = FROM_UNIXTIME(?)
 	WHERE id = ?
 	`
 
 	_, err := r.db.DB.Exec(query,
 		user.VehicleType,
 		user.VehiclePlate,
-		time.Now().Unix(),
+		user.UpdatedAt,
 		user.ID,
 	)
 
