@@ -1,0 +1,40 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+jetlink-server
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+backend.log
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+jetlink.db
+
+# OS
+.DS_Store
+Thumbs.db
