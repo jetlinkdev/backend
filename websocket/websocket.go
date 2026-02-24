@@ -211,6 +211,10 @@ func listenForMessages(client *hubhandlers.Client, hub *hubhandlers.Hub, logger 
 			intents.HandleDriverArrived(client, hub, logger, incomingMsg, repo)
 		case constants.IntentCompleteTrip:
 			intents.HandleCompleteTrip(client, hub, logger, incomingMsg, repo)
+		case constants.IntentGetMyBids:
+			intents.HandleGetMyBids(client, hub, logger, incomingMsg, repo)
+		case constants.IntentSubmitReview:
+			intents.HandleSubmitReview(client, hub, logger, incomingMsg, repo)
 		case constants.IntentPing:
 			intents.HandlePing(client)
 		default:

@@ -1,6 +1,7 @@
 package intents
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"jetlink/database"
 	hubhandlers "jetlink/handlers"
 	"jetlink/models"
+	"jetlink/redis"
 	"jetlink/utils"
 )
 
@@ -53,11 +55,80 @@ func HandleAuth(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.
 		// Check if user has active order and sync state
 		userState := hub.GetUserOrderState(firebaseUID)
 		if userState != nil {
+			// Restore OrderID to client session (critical for cancel_order to work after reload)
+			client.OrderID = &userState.OrderID
+			logger.Info(fmt.Sprintf("Restored OrderID %d to client %s session", userState.OrderID, client.ID))
+
+			// Update Redis client-order mappings for this new client connection
+			if hub.OrderRedis != nil {
+				ctx := context.Background()
+
+				// Store client -> order mapping
+				err := hub.OrderRedis.GetClient().InnerClient().Set(
+					ctx,
+					fmt.Sprintf("client:order:%s", client.ID),
+					userState.OrderID,
+					redis.OrderTTL,
+				).Err()
+				if err != nil {
+					logger.Error(fmt.Sprintf("Failed to store client-order mapping in Redis: %v", err))
+				}
+
+				// Update order -> client mapping to new client ID
+				err = hub.OrderRedis.GetClient().InnerClient().Set(
+					ctx,
+					fmt.Sprintf("order:client:%d", userState.OrderID),
+					client.ID,
+					redis.OrderTTL,
+				).Err()
+				if err != nil {
+					logger.Error(fmt.Sprintf("Failed to update order-client mapping in Redis: %v", err))
+				}
+			}
+
 			// Get full order data from database
 			order, err := repo.GetOrder(userState.OrderID)
 			if err != nil {
 				logger.Error(fmt.Sprintf("Failed to get order %d for user %s: %v", userState.OrderID, firebaseUID, err))
 			} else {
+				// Get bids from Redis if available
+				var bidsData []map[string]interface{}
+				if hub.BidRedis != nil {
+					ctx := context.Background()
+					orderBids, err := hub.BidRedis.GetOrderBids(ctx, userState.OrderID)
+					if err != nil {
+						logger.Error(fmt.Sprintf("Failed to get bids for order %d: %v", userState.OrderID, err))
+					} else {
+						for _, bid := range orderBids {
+							// Get driver info for each bid
+							driver, err := userRepo.GetUserByID(bid.DriverID)
+							if err != nil {
+								logger.Error(fmt.Sprintf("Failed to get driver %s info for bid: %v", bid.DriverID, err))
+							}
+
+							bidData := map[string]interface{}{
+								"bid_id":                 bid.ID,
+								"order_id":               bid.OrderID,
+								"driver_id":              bid.DriverID,
+								"bid_price":              bid.BidPrice,
+								"eta_minutes":            bid.ETAMinutes,
+								"estimated_arrival_time": bid.EstimatedArrivalTime,
+								"status":                 bid.Status,
+							}
+
+							// Include driver info if available
+							if driver != nil {
+								bidData["driver_name"] = driver.DisplayName
+								bidData["rating"] = driver.DriverRating
+								bidData["vehicle"] = driver.VehicleType
+								bidData["plate_number"] = driver.VehiclePlate
+							}
+
+							bidsData = append(bidsData, bidData)
+						}
+					}
+				}
+
 				// Sync existing order state and data to this connection
 				syncMsg := hubhandlers.Message{
 					Intent: "order_state_sync",
@@ -76,6 +147,7 @@ func HandleAuth(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.
 						"fare":                     order.Fare,
 						"bid_price":                order.BidPrice,
 						"estimated_arrival_time":   order.EstimatedArrivalTime,
+						"bids":                     bidsData,
 					},
 					Timestamp: time.Now().Unix(),
 				}

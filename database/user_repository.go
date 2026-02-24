@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"jetlink/models"
 )
@@ -232,6 +233,24 @@ func (r *UserRepository) DeleteUser(id string) error {
 
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %v", err)
+	}
+
+	return nil
+}
+
+// UpdateDriverRating updates a driver's average rating and total trips
+func (r *UserRepository) UpdateDriverRating(driverID string, rating float64, totalTrips int) error {
+	query := `
+	UPDATE jetlink_users
+	SET driver_rating = ?,
+		total_trips = ?,
+		updated_at = FROM_UNIXTIME(?)
+	WHERE id = ?
+	`
+
+	_, err := r.db.Exec(query, rating, totalTrips, time.Now().Unix(), driverID)
+	if err != nil {
+		return fmt.Errorf("failed to update driver rating: %v", err)
 	}
 
 	return nil

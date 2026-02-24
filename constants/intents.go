@@ -18,7 +18,11 @@ const (
 	IntentBidRejected       = "bid_rejected"
 	IntentNewBidReceived    = "new_bid_received"
 	IntentError             = "error"
-	
+	IntentGetMyBids         = "get_my_bids"
+	IntentMyBids            = "my_bids"
+	IntentSubmitReview      = "submit_review"
+	IntentReviewSubmitted   = "review_submitted"
+
 	// Authentication intents
 	IntentAuth               = "auth"
 	IntentAuthSuccess        = "auth_success"

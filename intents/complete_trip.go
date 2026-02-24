@@ -120,6 +120,10 @@ func HandleCompleteTrip(client *hubhandlers.Client, hub *hubhandlers.Hub, logger
 
 	logger.Info(fmt.Sprintf("Trip completed for order %d by driver %s. Fare: Rp %.0f", orderID, driverID, order.Fare))
 
+	// Get driver info for the review dialog
+	userRepo := database.NewUserRepository(repo.GetDB())
+	driver, _ := userRepo.GetUserByID(driverID)
+
 	// Send success response back to the driver
 	successMsg := hubhandlers.Message{
 		Intent: constants.IntentTripCompleted,
@@ -136,18 +140,29 @@ func HandleCompleteTrip(client *hubhandlers.Client, hub *hubhandlers.Hub, logger
 	client.Send <- successMsg.ToJSON()
 
 	// Broadcast trip completion notification to all clients (including the passenger)
+	broadcastData := map[string]interface{}{
+		"order_id":     orderID,
+		"driver_id":    driverID,
+		"status":       "completed",
+		"fare":         order.Fare,
+		"pickup":       order.Pickup,
+		"destination":  order.Destination,
+		"payment":      order.Payment,
+		"message":      "Your trip has been completed. Please rate your driver!",
+		"show_rating":  true, // Flag to trigger rating dialog on customer app
+	}
+
+	// Include driver info for the rating dialog
+	if driver != nil {
+		broadcastData["driver_name"] = driver.DisplayName
+		broadcastData["driver_photo"] = driver.PhotoURL
+		broadcastData["vehicle"] = driver.VehicleType
+		broadcastData["plate_number"] = driver.VehiclePlate
+	}
+
 	broadcastMsg := hubhandlers.Message{
-		Intent: constants.IntentTripCompleted,
-		Data: map[string]interface{}{
-			"order_id":     orderID,
-			"driver_id":    driverID,
-			"status":       "completed",
-			"fare":         order.Fare,
-			"pickup":       order.Pickup,
-			"destination":  order.Destination,
-			"payment":      order.Payment,
-			"message":      "Your trip has been completed. Thank you for using Jetlink!",
-		},
+		Intent:    constants.IntentTripCompleted,
+		Data:      broadcastData,
 		Timestamp: time.Now().Unix(),
 	}
 	hub.BroadcastMessage(broadcastMsg)

@@ -182,6 +182,13 @@ func HandleSubmitBid(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *u
 
 	logger.Info(fmt.Sprintf("Driver %s submitted bid for order %d: Price=%.2f, ETA=%s", driverID, orderID, bidPriceFloat, time.Unix(etaTimestamp, 0).Format("2006-01-02 15:04:05")))
 
+	// Get driver info from database to include in broadcast
+	userRepo := database.NewUserRepository(repo.GetDB())
+	driver, err := userRepo.GetUserByID(driverID)
+	if err != nil {
+		logger.Error(fmt.Sprintf("Failed to get driver %s info: %v", driverID, err))
+	}
+
 	// Send success response back to the driver
 	successMsg := hubhandlers.Message{
 		Intent: constants.IntentBidAccepted,
@@ -201,16 +208,26 @@ func HandleSubmitBid(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *u
 	client.Send <- successMsg.ToJSON()
 
 	// Broadcast new bid notification to all clients (including the user who created the order)
+	broadcastData := map[string]interface{}{
+		"bid_id":                 bid.ID,
+		"order_id":               orderID,
+		"driver_id":              driverID,
+		"bid_price":              bidPriceFloat,
+		"estimated_arrival_time": etaTimestamp,
+		"eta_minutes":            etaMinutes,
+	}
+
+	// Include driver info if available
+	if driver != nil {
+		broadcastData["driver_name"] = driver.DisplayName
+		broadcastData["rating"] = driver.DriverRating
+		broadcastData["vehicle"] = driver.VehicleType
+		broadcastData["plate_number"] = driver.VehiclePlate
+	}
+
 	broadcastMsg := hubhandlers.Message{
-		Intent: constants.IntentNewBidReceived,
-		Data: map[string]interface{}{
-			"bid_id":                 bid.ID,
-			"order_id":               orderID,
-			"driver_id":              driverID,
-			"bid_price":              bidPriceFloat,
-			"estimated_arrival_time": etaTimestamp,
-			"eta_minutes":            etaMinutes,
-		},
+		Intent:    constants.IntentNewBidReceived,
+		Data:      broadcastData,
 		Timestamp: time.Now().Unix(),
 		ClientID:  client.ID,
 	}

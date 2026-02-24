@@ -128,6 +128,32 @@ func (db *DB) createTables() error {
 		return fmt.Errorf("failed to create bids table: %v", err)
 	}
 
+	// Create the reviews table
+	query = `
+	CREATE TABLE IF NOT EXISTS jetlink_reviews (
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		order_id INT NOT NULL,
+		user_id VARCHAR(255) NOT NULL,
+		driver_id VARCHAR(255) NOT NULL,
+		rating INT NOT NULL CHECK (rating >= 1 AND rating <= 5),
+		review TEXT,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		FOREIGN KEY (order_id) REFERENCES jetlink_orders(id) ON DELETE CASCADE,
+		FOREIGN KEY (user_id) REFERENCES jetlink_users(id) ON DELETE CASCADE,
+		FOREIGN KEY (driver_id) REFERENCES jetlink_users(id) ON DELETE CASCADE,
+		UNIQUE KEY unique_order_review (order_id),
+		INDEX idx_jetlink_reviews_driver_id (driver_id),
+		INDEX idx_jetlink_reviews_user_id (user_id),
+		INDEX idx_jetlink_reviews_rating (rating)
+	);
+	`
+
+	_, err = db.Exec(query)
+	if err != nil {
+		return fmt.Errorf("failed to create reviews table: %v", err)
+	}
+
 	return nil
 }
 
