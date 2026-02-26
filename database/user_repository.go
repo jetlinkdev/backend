@@ -24,8 +24,8 @@ func (r *UserRepository) CreateUser(user *models.User) error {
 	INSERT INTO jetlink_users (
 		id, email, display_name, photo_url, phone_number, role,
 		vehicle_type, vehicle_plate, driver_rating, total_trips, is_verified,
-		created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?))
+		created_at, updated_at, deleted_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), NULL)
 	`
 
 	_, err := r.db.DB.Exec(query,
@@ -57,12 +57,13 @@ func (r *UserRepository) GetUserByID(id string) (*models.User, error) {
 	SELECT id, email, display_name, photo_url, phone_number, role,
 		   vehicle_type, vehicle_plate, driver_rating, total_trips, is_verified,
 		   UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at),
-		   UNIX_TIMESTAMP(last_login_at)
-	FROM jetlink_users WHERE id = ?
+		   UNIX_TIMESTAMP(last_login_at), UNIX_TIMESTAMP(deleted_at)
+	FROM jetlink_users WHERE id = ? AND deleted_at IS NULL
 	`
 
 	user := &models.User{}
 	var lastLoginAt sql.NullInt64
+	var deletedAt sql.NullInt64
 
 	err := r.db.DB.QueryRow(query, id).Scan(
 		&user.ID,
@@ -79,6 +80,7 @@ func (r *UserRepository) GetUserByID(id string) (*models.User, error) {
 		&user.CreatedAt,
 		&user.UpdatedAt,
 		&lastLoginAt,
+		&deletedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -93,6 +95,10 @@ func (r *UserRepository) GetUserByID(id string) (*models.User, error) {
 		user.LastLoginAt = &lastLoginAt.Int64
 	}
 
+	if deletedAt.Valid {
+		user.DeletedAt = &deletedAt.Int64
+	}
+
 	return user, nil
 }
 
@@ -102,12 +108,13 @@ func (r *UserRepository) GetUserByEmail(email string) (*models.User, error) {
 	SELECT id, email, display_name, photo_url, phone_number, role,
 		   vehicle_type, vehicle_plate, driver_rating, total_trips, is_verified,
 		   UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at),
-		   UNIX_TIMESTAMP(last_login_at)
-	FROM jetlink_users WHERE email = ?
+		   UNIX_TIMESTAMP(last_login_at), UNIX_TIMESTAMP(deleted_at)
+	FROM jetlink_users WHERE email = ? AND deleted_at IS NULL
 	`
 
 	user := &models.User{}
 	var lastLoginAt sql.NullInt64
+	var deletedAt sql.NullInt64
 
 	err := r.db.DB.QueryRow(query, email).Scan(
 		&user.ID,
@@ -124,6 +131,7 @@ func (r *UserRepository) GetUserByEmail(email string) (*models.User, error) {
 		&user.CreatedAt,
 		&user.UpdatedAt,
 		&lastLoginAt,
+		&deletedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -136,6 +144,10 @@ func (r *UserRepository) GetUserByEmail(email string) (*models.User, error) {
 
 	if lastLoginAt.Valid {
 		user.LastLoginAt = &lastLoginAt.Int64
+	}
+
+	if deletedAt.Valid {
+		user.DeletedAt = &deletedAt.Int64
 	}
 
 	return user, nil
@@ -213,7 +225,7 @@ func (r *UserRepository) RegisterDriver(user *models.User) error {
 
 // IsDriverRegistered checks if a user is registered as a driver
 func (r *UserRepository) IsDriverRegistered(id string) (bool, error) {
-	query := `SELECT COUNT(*) FROM jetlink_users WHERE id = ? AND role = 'driver'`
+	query := `SELECT COUNT(*) FROM jetlink_users WHERE id = ? AND role = 'driver' AND deleted_at IS NULL`
 
 	var count int
 	err := r.db.QueryRow(query, id).Scan(&count)
@@ -225,7 +237,33 @@ func (r *UserRepository) IsDriverRegistered(id string) (bool, error) {
 	return count > 0, nil
 }
 
-// DeleteUser deletes a user from the database
+// SoftDeleteUser soft deletes a user by setting deleted_at timestamp
+func (r *UserRepository) SoftDeleteUser(id string) error {
+	query := `UPDATE jetlink_users SET deleted_at = NOW(), updated_at = NOW() WHERE id = ?`
+
+	_, err := r.db.DB.Exec(query, id)
+
+	if err != nil {
+		return fmt.Errorf("failed to soft delete user: %v", err)
+	}
+
+	return nil
+}
+
+// RestoreUser restores a soft deleted user by clearing deleted_at
+func (r *UserRepository) RestoreUser(id string) error {
+	query := `UPDATE jetlink_users SET deleted_at = NULL, updated_at = NOW() WHERE id = ?`
+
+	_, err := r.db.DB.Exec(query, id)
+
+	if err != nil {
+		return fmt.Errorf("failed to restore user: %v", err)
+	}
+
+	return nil
+}
+
+// DeleteUser deletes a user from the database (hard delete - use with caution)
 func (r *UserRepository) DeleteUser(id string) error {
 	query := `DELETE FROM jetlink_users WHERE id = ?`
 

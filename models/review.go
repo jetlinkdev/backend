@@ -10,6 +10,7 @@ type Review struct {
 	Review    string `json:"review,omitempty"`
 	CreatedAt int64  `json:"createdAt"`
 	UpdatedAt int64  `json:"updatedAt"`
+	DeletedAt *int64 `json:"deletedAt,omitempty"`
 }
 
 // CreateReviewRequest represents the data for creating a review

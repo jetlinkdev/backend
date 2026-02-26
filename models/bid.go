@@ -12,6 +12,7 @@ type Bid struct {
 	Message              string  `json:"message,omitempty"`
 	CreatedAt            int64   `json:"createdAt"`
 	UpdatedAt            int64   `json:"updatedAt"`
+	DeletedAt            *int64  `json:"deletedAt,omitempty"`
 }
 
 // CreateBidRequest represents the data for creating a new bid

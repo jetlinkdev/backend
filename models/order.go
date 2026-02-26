@@ -20,6 +20,7 @@ type Order struct {
 	EstimatedArrivalTime  *int64  `json:"estimatedArrivalTime,omitempty"` // Timestamp waktu tiba di tempat jemput
 	CreatedAt             int64   `json:"createdAt"`
 	UpdatedAt             int64   `json:"updatedAt"`
+	DeletedAt             *int64  `json:"deletedAt,omitempty"`
 }
 
 // CreateOrderRequest represents the data for creating a new order

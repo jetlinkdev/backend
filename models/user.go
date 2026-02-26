@@ -16,6 +16,7 @@ type User struct {
 	CreatedAt       int64   `json:"createdAt"`
 	UpdatedAt       int64   `json:"updatedAt"`
 	LastLoginAt     *int64  `json:"lastLoginAt,omitempty"`
+	DeletedAt       *int64  `json:"deletedAt,omitempty"`
 }
 
 // CreateUserRequest represents the data for creating a new user

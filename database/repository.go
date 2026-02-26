@@ -36,8 +36,8 @@ func (r *OrderRepository) CreateOrder(order *models.Order) error {
 		user_id, driver_id, pickup, pickup_latitude, pickup_longitude,
 		destination, destination_latitude, destination_longitude,
 		notes, time, payment, status, fare, bid_price, estimated_arrival_time,
-		created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?))
+		created_at, updated_at, deleted_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), NULL)
 	`
 
 	stmt, err := r.db.Prepare(query)
@@ -101,13 +101,14 @@ func (r *OrderRepository) GetOrder(id int64) (*models.Order, error) {
 	r.db.mutex.Lock()
 	defer r.db.mutex.Unlock()
 
-	query := `SELECT id, user_id, driver_id, pickup, pickup_latitude, pickup_longitude, destination, destination_latitude, destination_longitude, notes, time, payment, status, fare, bid_price, UNIX_TIMESTAMP(estimated_arrival_time), UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at) FROM jetlink_orders WHERE id = ?`
+	query := `SELECT id, user_id, driver_id, pickup, pickup_latitude, pickup_longitude, destination, destination_latitude, destination_longitude, notes, time, payment, status, fare, bid_price, UNIX_TIMESTAMP(estimated_arrival_time), UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at), UNIX_TIMESTAMP(deleted_at) FROM jetlink_orders WHERE id = ? AND deleted_at IS NULL`
 
 	row := r.db.QueryRow(query, id)
 
 	var order models.Order
-	var timeValue *int64
-	var etaValue *int64
+	var timeValue sql.NullInt64
+	var etaValue sql.NullInt64
+	var deletedAt sql.NullInt64
 	err := row.Scan(
 		&order.ID,
 		&order.UserID,
@@ -127,6 +128,7 @@ func (r *OrderRepository) GetOrder(id int64) (*models.Order, error) {
 		&etaValue,
 		&order.CreatedAt,
 		&order.UpdatedAt,
+		&deletedAt,
 	)
 
 	if err != nil {
@@ -137,13 +139,18 @@ func (r *OrderRepository) GetOrder(id int64) (*models.Order, error) {
 	}
 
 	// Handle nullable time field
-	if timeValue != nil {
-		order.Time = timeValue
+	if timeValue.Valid {
+		order.Time = &timeValue.Int64
 	}
 
 	// Handle nullable ETA field
-	if etaValue != nil {
-		order.EstimatedArrivalTime = etaValue
+	if etaValue.Valid {
+		order.EstimatedArrivalTime = &etaValue.Int64
+	}
+
+	// Handle nullable deleted_at field
+	if deletedAt.Valid {
+		order.DeletedAt = &deletedAt.Int64
 	}
 
 	return &order, nil
@@ -160,7 +167,7 @@ func (r *OrderRepository) UpdateOrder(order *models.Order) error {
 		destination = ?, destination_latitude = ?, destination_longitude = ?,
 		notes = ?, time = ?, payment = ?, status = ?, fare = ?, bid_price = ?, estimated_arrival_time = FROM_UNIXTIME(?),
 		updated_at = CURRENT_TIMESTAMP
-	WHERE id = ?
+	WHERE id = ? AND deleted_at IS NULL
 	`
 
 	stmt, err := r.db.Prepare(query)
@@ -214,7 +221,7 @@ func (r *OrderRepository) GetOrdersByUserID(userID string) ([]*models.Order, err
 	r.db.mutex.Lock()
 	defer r.db.mutex.Unlock()
 
-	query := `SELECT id, user_id, driver_id, pickup, pickup_latitude, pickup_longitude, destination, destination_latitude, destination_longitude, notes, time, payment, status, fare, bid_price, UNIX_TIMESTAMP(estimated_arrival_time), UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at) FROM jetlink_orders WHERE user_id = ? ORDER BY created_at DESC`
+	query := `SELECT id, user_id, driver_id, pickup, pickup_latitude, pickup_longitude, destination, destination_latitude, destination_longitude, notes, time, payment, status, fare, bid_price, UNIX_TIMESTAMP(estimated_arrival_time), UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at), UNIX_TIMESTAMP(deleted_at) FROM jetlink_orders WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC`
 
 	rows, err := r.db.Query(query, userID)
 	if err != nil {
@@ -225,8 +232,9 @@ func (r *OrderRepository) GetOrdersByUserID(userID string) ([]*models.Order, err
 	var orders []*models.Order
 	for rows.Next() {
 		var order models.Order
-		var timeValue *int64
-		var etaValue *int64
+		var timeValue sql.NullInt64
+		var etaValue sql.NullInt64
+		var deletedAt sql.NullInt64
 		err := rows.Scan(
 			&order.ID,
 			&order.UserID,
@@ -246,19 +254,25 @@ func (r *OrderRepository) GetOrdersByUserID(userID string) ([]*models.Order, err
 			&etaValue,
 			&order.CreatedAt,
 			&order.UpdatedAt,
+			&deletedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan order: %v", err)
 		}
 
 		// Handle nullable time field
-		if timeValue != nil {
-			order.Time = timeValue
+		if timeValue.Valid {
+			order.Time = &timeValue.Int64
 		}
 
 		// Handle nullable ETA field
-		if etaValue != nil {
-			order.EstimatedArrivalTime = etaValue
+		if etaValue.Valid {
+			order.EstimatedArrivalTime = &etaValue.Int64
+		}
+
+		// Handle nullable deleted_at field
+		if deletedAt.Valid {
+			order.DeletedAt = &deletedAt.Int64
 		}
 
 		orders = append(orders, &order)
@@ -272,7 +286,7 @@ func (r *OrderRepository) GetOrdersByStatus(status string) ([]*models.Order, err
 	r.db.mutex.Lock()
 	defer r.db.mutex.Unlock()
 
-	query := `SELECT id, user_id, driver_id, pickup, pickup_latitude, pickup_longitude, destination, destination_latitude, destination_longitude, notes, time, payment, status, fare, bid_price, UNIX_TIMESTAMP(estimated_arrival_time), UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at) FROM jetlink_orders WHERE status = ? ORDER BY created_at DESC`
+	query := `SELECT id, user_id, driver_id, pickup, pickup_latitude, pickup_longitude, destination, destination_latitude, destination_longitude, notes, time, payment, status, fare, bid_price, UNIX_TIMESTAMP(estimated_arrival_time), UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at), UNIX_TIMESTAMP(deleted_at) FROM jetlink_orders WHERE status = ? AND deleted_at IS NULL ORDER BY created_at DESC`
 
 	rows, err := r.db.Query(query, status)
 	if err != nil {
@@ -283,8 +297,9 @@ func (r *OrderRepository) GetOrdersByStatus(status string) ([]*models.Order, err
 	var orders []*models.Order
 	for rows.Next() {
 		var order models.Order
-		var timeValue *int64
-		var etaValue *int64
+		var timeValue sql.NullInt64
+		var etaValue sql.NullInt64
+		var deletedAt sql.NullInt64
 		err := rows.Scan(
 			&order.ID,
 			&order.UserID,
@@ -304,19 +319,25 @@ func (r *OrderRepository) GetOrdersByStatus(status string) ([]*models.Order, err
 			&etaValue,
 			&order.CreatedAt,
 			&order.UpdatedAt,
+			&deletedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan order: %v", err)
 		}
 
 		// Handle nullable time field
-		if timeValue != nil {
-			order.Time = timeValue
+		if timeValue.Valid {
+			order.Time = &timeValue.Int64
 		}
 
 		// Handle nullable ETA field
-		if etaValue != nil {
-			order.EstimatedArrivalTime = etaValue
+		if etaValue.Valid {
+			order.EstimatedArrivalTime = &etaValue.Int64
+		}
+
+		// Handle nullable deleted_at field
+		if deletedAt.Valid {
+			order.DeletedAt = &deletedAt.Int64
 		}
 
 		orders = append(orders, &order)
@@ -330,7 +351,7 @@ func (r *OrderRepository) GetAllOrders() ([]*models.Order, error) {
 	r.db.mutex.Lock()
 	defer r.db.mutex.Unlock()
 
-	query := `SELECT id, user_id, driver_id, pickup, pickup_latitude, pickup_longitude, destination, destination_latitude, destination_longitude, notes, time, payment, status, fare, bid_price, UNIX_TIMESTAMP(estimated_arrival_time), UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at) FROM jetlink_orders ORDER BY created_at DESC`
+	query := `SELECT id, user_id, driver_id, pickup, pickup_latitude, pickup_longitude, destination, destination_latitude, destination_longitude, notes, time, payment, status, fare, bid_price, UNIX_TIMESTAMP(estimated_arrival_time), UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at), UNIX_TIMESTAMP(deleted_at) FROM jetlink_orders ORDER BY created_at DESC`
 
 	rows, err := r.db.Query(query)
 	if err != nil {
@@ -341,8 +362,9 @@ func (r *OrderRepository) GetAllOrders() ([]*models.Order, error) {
 	var orders []*models.Order
 	for rows.Next() {
 		var order models.Order
-		var timeValue *int64
-		var etaValue *int64
+		var timeValue sql.NullInt64
+		var etaValue sql.NullInt64
+		var deletedAt sql.NullInt64
 		err := rows.Scan(
 			&order.ID,
 			&order.UserID,
@@ -362,23 +384,59 @@ func (r *OrderRepository) GetAllOrders() ([]*models.Order, error) {
 			&etaValue,
 			&order.CreatedAt,
 			&order.UpdatedAt,
+			&deletedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan order: %v", err)
 		}
 
 		// Handle nullable time field
-		if timeValue != nil {
-			order.Time = timeValue
+		if timeValue.Valid {
+			order.Time = &timeValue.Int64
 		}
 
 		// Handle nullable ETA field
-		if etaValue != nil {
-			order.EstimatedArrivalTime = etaValue
+		if etaValue.Valid {
+			order.EstimatedArrivalTime = &etaValue.Int64
+		}
+
+		// Handle nullable deleted_at field
+		if deletedAt.Valid {
+			order.DeletedAt = &deletedAt.Int64
 		}
 
 		orders = append(orders, &order)
 	}
 
 	return orders, nil
+}
+
+// SoftDeleteOrder soft deletes an order by setting deleted_at timestamp
+func (r *OrderRepository) SoftDeleteOrder(id int64) error {
+	r.db.mutex.Lock()
+	defer r.db.mutex.Unlock()
+
+	query := `UPDATE jetlink_orders SET deleted_at = NOW(), updated_at = NOW() WHERE id = ?`
+
+	_, err := r.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to soft delete order: %v", err)
+	}
+
+	return nil
+}
+
+// RestoreOrder restores a soft deleted order by clearing deleted_at
+func (r *OrderRepository) RestoreOrder(id int64) error {
+	r.db.mutex.Lock()
+	defer r.db.mutex.Unlock()
+
+	query := `UPDATE jetlink_orders SET deleted_at = NULL, updated_at = NOW() WHERE id = ?`
+
+	_, err := r.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to restore order: %v", err)
+	}
+
+	return nil
 }

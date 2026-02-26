@@ -29,8 +29,8 @@ func (r *BidRepository) CreateBid(bid *models.Bid) error {
 	query := `
 	INSERT INTO jetlink_bids (
 		order_id, driver_id, bid_price, estimated_arrival_time, eta_minutes,
-		status, message, created_at, updated_at
-	) VALUES (?, ?, ?, FROM_UNIXTIME(?), ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?))
+		status, message, created_at, updated_at, deleted_at
+	) VALUES (?, ?, ?, FROM_UNIXTIME(?), ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), NULL)
 	`
 
 	stmt, err := r.db.Prepare(query)
@@ -73,14 +73,16 @@ func (r *BidRepository) GetBid(id int64) (*models.Bid, error) {
 	defer r.db.mutex.Unlock()
 
 	query := `
-	SELECT id, order_id, driver_id, bid_price, UNIX_TIMESTAMP(estimated_arrival_time), 
-		eta_minutes, status, message, UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at)
-	FROM jetlink_bids WHERE id = ?
+	SELECT id, order_id, driver_id, bid_price, UNIX_TIMESTAMP(estimated_arrival_time),
+		eta_minutes, status, message, UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at),
+		UNIX_TIMESTAMP(deleted_at)
+	FROM jetlink_bids WHERE id = ? AND deleted_at IS NULL
 	`
 
 	row := r.db.QueryRow(query, id)
 
 	var bid models.Bid
+	var deletedAt sql.NullInt64
 	err := row.Scan(
 		&bid.ID,
 		&bid.OrderID,
@@ -92,6 +94,7 @@ func (r *BidRepository) GetBid(id int64) (*models.Bid, error) {
 		&bid.Message,
 		&bid.CreatedAt,
 		&bid.UpdatedAt,
+		&deletedAt,
 	)
 
 	if err != nil {
@@ -99,6 +102,10 @@ func (r *BidRepository) GetBid(id int64) (*models.Bid, error) {
 			return nil, fmt.Errorf("bid with id %d not found", id)
 		}
 		return nil, fmt.Errorf("failed to get bid: %v", err)
+	}
+
+	if deletedAt.Valid {
+		bid.DeletedAt = &deletedAt.Int64
 	}
 
 	return &bid, nil
@@ -110,9 +117,10 @@ func (r *BidRepository) GetBidsByOrderID(orderID int64) ([]*models.Bid, error) {
 	defer r.db.mutex.Unlock()
 
 	query := `
-	SELECT id, order_id, driver_id, bid_price, UNIX_TIMESTAMP(estimated_arrival_time), 
-		eta_minutes, status, message, UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at)
-	FROM jetlink_bids WHERE order_id = ? ORDER BY created_at ASC
+	SELECT id, order_id, driver_id, bid_price, UNIX_TIMESTAMP(estimated_arrival_time),
+		eta_minutes, status, message, UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at),
+		UNIX_TIMESTAMP(deleted_at)
+	FROM jetlink_bids WHERE order_id = ? AND deleted_at IS NULL ORDER BY created_at ASC
 	`
 
 	rows, err := r.db.Query(query, orderID)
@@ -124,6 +132,7 @@ func (r *BidRepository) GetBidsByOrderID(orderID int64) ([]*models.Bid, error) {
 	var bids []*models.Bid
 	for rows.Next() {
 		var bid models.Bid
+		var deletedAt sql.NullInt64
 		err := rows.Scan(
 			&bid.ID,
 			&bid.OrderID,
@@ -135,9 +144,13 @@ func (r *BidRepository) GetBidsByOrderID(orderID int64) ([]*models.Bid, error) {
 			&bid.Message,
 			&bid.CreatedAt,
 			&bid.UpdatedAt,
+			&deletedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan bid: %v", err)
+		}
+		if deletedAt.Valid {
+			bid.DeletedAt = &deletedAt.Int64
 		}
 		bids = append(bids, &bid)
 	}
@@ -151,9 +164,10 @@ func (r *BidRepository) GetBidsByDriverID(driverID string) ([]*models.Bid, error
 	defer r.db.mutex.Unlock()
 
 	query := `
-	SELECT id, order_id, driver_id, bid_price, UNIX_TIMESTAMP(estimated_arrival_time), 
-		eta_minutes, status, message, UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at)
-	FROM jetlink_bids WHERE driver_id = ? ORDER BY created_at DESC
+	SELECT id, order_id, driver_id, bid_price, UNIX_TIMESTAMP(estimated_arrival_time),
+		eta_minutes, status, message, UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at),
+		UNIX_TIMESTAMP(deleted_at)
+	FROM jetlink_bids WHERE driver_id = ? AND deleted_at IS NULL ORDER BY created_at DESC
 	`
 
 	rows, err := r.db.Query(query, driverID)
@@ -165,6 +179,7 @@ func (r *BidRepository) GetBidsByDriverID(driverID string) ([]*models.Bid, error
 	var bids []*models.Bid
 	for rows.Next() {
 		var bid models.Bid
+		var deletedAt sql.NullInt64
 		err := rows.Scan(
 			&bid.ID,
 			&bid.OrderID,
@@ -176,9 +191,13 @@ func (r *BidRepository) GetBidsByDriverID(driverID string) ([]*models.Bid, error
 			&bid.Message,
 			&bid.CreatedAt,
 			&bid.UpdatedAt,
+			&deletedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan bid: %v", err)
+		}
+		if deletedAt.Valid {
+			bid.DeletedAt = &deletedAt.Int64
 		}
 		bids = append(bids, &bid)
 	}
@@ -194,7 +213,7 @@ func (r *BidRepository) UpdateBidStatus(bidID int64, status string, message stri
 	query := `
 	UPDATE jetlink_bids SET
 		status = ?, message = ?, updated_at = CURRENT_TIMESTAMP
-	WHERE id = ?
+	WHERE id = ? AND deleted_at IS NULL
 	`
 
 	stmt, err := r.db.Prepare(query)
@@ -220,7 +239,7 @@ func (r *BidRepository) UpdateBid(bid *models.Bid) error {
 	UPDATE jetlink_bids SET
 		order_id = ?, driver_id = ?, bid_price = ?, estimated_arrival_time = FROM_UNIXTIME(?),
 		eta_minutes = ?, status = ?, message = ?, updated_at = CURRENT_TIMESTAMP
-	WHERE id = ?
+	WHERE id = ? AND deleted_at IS NULL
 	`
 
 	stmt, err := r.db.Prepare(query)
@@ -253,9 +272,10 @@ func (r *BidRepository) GetPendingBidsByOrderID(orderID int64) ([]*models.Bid, e
 	defer r.db.mutex.Unlock()
 
 	query := `
-	SELECT id, order_id, driver_id, bid_price, UNIX_TIMESTAMP(estimated_arrival_time), 
-		eta_minutes, status, message, UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at)
-	FROM jetlink_bids WHERE order_id = ? AND status = 'pending' ORDER BY bid_price ASC
+	SELECT id, order_id, driver_id, bid_price, UNIX_TIMESTAMP(estimated_arrival_time),
+		eta_minutes, status, message, UNIX_TIMESTAMP(created_at), UNIX_TIMESTAMP(updated_at),
+		UNIX_TIMESTAMP(deleted_at)
+	FROM jetlink_bids WHERE order_id = ? AND status = 'pending' AND deleted_at IS NULL ORDER BY bid_price ASC
 	`
 
 	rows, err := r.db.Query(query, orderID)
@@ -267,6 +287,7 @@ func (r *BidRepository) GetPendingBidsByOrderID(orderID int64) ([]*models.Bid, e
 	var bids []*models.Bid
 	for rows.Next() {
 		var bid models.Bid
+		var deletedAt sql.NullInt64
 		err := rows.Scan(
 			&bid.ID,
 			&bid.OrderID,
@@ -278,9 +299,13 @@ func (r *BidRepository) GetPendingBidsByOrderID(orderID int64) ([]*models.Bid, e
 			&bid.Message,
 			&bid.CreatedAt,
 			&bid.UpdatedAt,
+			&deletedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan bid: %v", err)
+		}
+		if deletedAt.Valid {
+			bid.DeletedAt = &deletedAt.Int64
 		}
 		bids = append(bids, &bid)
 	}
@@ -293,7 +318,7 @@ func (r *BidRepository) HasDriverBidForOrder(driverID string, orderID int64) (bo
 	r.db.mutex.Lock()
 	defer r.db.mutex.Unlock()
 
-	query := `SELECT COUNT(*) FROM jetlink_bids WHERE driver_id = ? AND order_id = ?`
+	query := `SELECT COUNT(*) FROM jetlink_bids WHERE driver_id = ? AND order_id = ? AND deleted_at IS NULL`
 
 	var count int
 	err := r.db.QueryRow(query, driverID, orderID).Scan(&count)
@@ -302,4 +327,34 @@ func (r *BidRepository) HasDriverBidForOrder(driverID string, orderID int64) (bo
 	}
 
 	return count > 0, nil
+}
+
+// SoftDeleteBid soft deletes a bid by setting deleted_at timestamp
+func (r *BidRepository) SoftDeleteBid(id int64) error {
+	r.db.mutex.Lock()
+	defer r.db.mutex.Unlock()
+
+	query := `UPDATE jetlink_bids SET deleted_at = NOW(), updated_at = NOW() WHERE id = ?`
+
+	_, err := r.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to soft delete bid: %v", err)
+	}
+
+	return nil
+}
+
+// RestoreBid restores a soft deleted bid by clearing deleted_at
+func (r *BidRepository) RestoreBid(id int64) error {
+	r.db.mutex.Lock()
+	defer r.db.mutex.Unlock()
+
+	query := `UPDATE jetlink_bids SET deleted_at = NULL, updated_at = NOW() WHERE id = ?`
+
+	_, err := r.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to restore bid: %v", err)
+	}
+
+	return nil
 }

@@ -22,8 +22,8 @@ func NewReviewRepository(db *DB) *ReviewRepository {
 // CreateReview creates a new review in the database
 func (repo *ReviewRepository) CreateReview(review *models.Review) error {
 	query := `
-		INSERT INTO jetlink_reviews (order_id, user_id, driver_id, rating, review, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO jetlink_reviews (order_id, user_id, driver_id, rating, review, created_at, updated_at, deleted_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
 	`
 
 	result, err := repo.db.Exec(query,
@@ -52,12 +52,13 @@ func (repo *ReviewRepository) CreateReview(review *models.Review) error {
 // GetReviewByOrderID retrieves a review by order ID
 func (repo *ReviewRepository) GetReviewByOrderID(orderID int64) (*models.Review, error) {
 	query := `
-		SELECT id, order_id, user_id, driver_id, rating, review, created_at, updated_at
+		SELECT id, order_id, user_id, driver_id, rating, review, created_at, updated_at, UNIX_TIMESTAMP(deleted_at)
 		FROM jetlink_reviews
-		WHERE order_id = ?
+		WHERE order_id = ? AND deleted_at IS NULL
 	`
 
 	review := &models.Review{}
+	var deletedAt sql.NullInt64
 	err := repo.db.QueryRow(query, orderID).Scan(
 		&review.ID,
 		&review.OrderID,
@@ -67,6 +68,7 @@ func (repo *ReviewRepository) GetReviewByOrderID(orderID int64) (*models.Review,
 		&review.Review,
 		&review.CreatedAt,
 		&review.UpdatedAt,
+		&deletedAt,
 	)
 
 	if err != nil {
@@ -76,15 +78,19 @@ func (repo *ReviewRepository) GetReviewByOrderID(orderID int64) (*models.Review,
 		return nil, fmt.Errorf("failed to get review: %v", err)
 	}
 
+	if deletedAt.Valid {
+		review.DeletedAt = &deletedAt.Int64
+	}
+
 	return review, nil
 }
 
 // GetReviewsByDriverID retrieves all reviews for a driver
 func (repo *ReviewRepository) GetReviewsByDriverID(driverID string, limit int) ([]*models.Review, error) {
 	query := `
-		SELECT id, order_id, user_id, driver_id, rating, review, created_at, updated_at
+		SELECT id, order_id, user_id, driver_id, rating, review, created_at, updated_at, UNIX_TIMESTAMP(deleted_at)
 		FROM jetlink_reviews
-		WHERE driver_id = ?
+		WHERE driver_id = ? AND deleted_at IS NULL
 		ORDER BY created_at DESC
 		LIMIT ?
 	`
@@ -98,6 +104,7 @@ func (repo *ReviewRepository) GetReviewsByDriverID(driverID string, limit int) (
 	var reviews []*models.Review
 	for rows.Next() {
 		review := &models.Review{}
+		var deletedAt sql.NullInt64
 		err := rows.Scan(
 			&review.ID,
 			&review.OrderID,
@@ -107,9 +114,13 @@ func (repo *ReviewRepository) GetReviewsByDriverID(driverID string, limit int) (
 			&review.Review,
 			&review.CreatedAt,
 			&review.UpdatedAt,
+			&deletedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan review: %v", err)
+		}
+		if deletedAt.Valid {
+			review.DeletedAt = &deletedAt.Int64
 		}
 		reviews = append(reviews, review)
 	}
@@ -122,7 +133,7 @@ func (repo *ReviewRepository) GetDriverAverageRating(driverID string) (float64, 
 	query := `
 		SELECT AVG(rating) as avg_rating
 		FROM jetlink_reviews
-		WHERE driver_id = ?
+		WHERE driver_id = ? AND deleted_at IS NULL
 	`
 
 	var avgRating sql.NullFloat64
@@ -143,7 +154,7 @@ func (repo *ReviewRepository) GetDriverTotalReviews(driverID string) (int, error
 	query := `
 		SELECT COUNT(*)
 		FROM jetlink_reviews
-		WHERE driver_id = ?
+		WHERE driver_id = ? AND deleted_at IS NULL
 	`
 
 	var count int
@@ -158,7 +169,7 @@ func (repo *ReviewRepository) GetDriverTotalReviews(driverID string) (int, error
 // HasReviewedOrder checks if a user has already reviewed an order
 func (repo *ReviewRepository) HasReviewedOrder(orderID int64) (bool, error) {
 	query := `
-		SELECT EXISTS(SELECT 1 FROM jetlink_reviews WHERE order_id = ?)
+		SELECT EXISTS(SELECT 1 FROM jetlink_reviews WHERE order_id = ? AND deleted_at IS NULL)
 	`
 
 	var exists bool
@@ -168,4 +179,28 @@ func (repo *ReviewRepository) HasReviewedOrder(orderID int64) (bool, error) {
 	}
 
 	return exists, nil
+}
+
+// SoftDeleteReview soft deletes a review by setting deleted_at timestamp
+func (repo *ReviewRepository) SoftDeleteReview(id int64) error {
+	query := `UPDATE jetlink_reviews SET deleted_at = NOW(), updated_at = NOW() WHERE id = ?`
+
+	_, err := repo.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to soft delete review: %v", err)
+	}
+
+	return nil
+}
+
+// RestoreReview restores a soft deleted review by clearing deleted_at
+func (repo *ReviewRepository) RestoreReview(id int64) error {
+	query := `UPDATE jetlink_reviews SET deleted_at = NULL, updated_at = NOW() WHERE id = ?`
+
+	_, err := repo.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to restore review: %v", err)
+	}
+
+	return nil
 }
