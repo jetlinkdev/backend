@@ -24,6 +24,10 @@ vendor/
 .env
 .env.local
 
+# Firebase service account key (SECURITY: Never commit this!)
+serviceAccountKey.json
+*-firebase-adminsdk-*.json
+
 # Logs
 *.log
 logs/
