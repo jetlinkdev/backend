@@ -1,125 +1,247 @@
 # Firebase Setup Guide
 
-## Firebase Configuration
+## ⚠️ PENTING: Kenapa Muncul Log "Firebase token verification will not be available"
 
-Project ID: `jetlink-47eb8`
+Log ini muncul karena Firebase Admin SDK **tidak bisa initialize** tanpa credentials.
 
-### Setup Steps
+Backend butuh **salah satu** dari ini:
+1. ✅ **Service Account Key** (RECOMMENDED)
+2. ✅ **Application Default Credentials (ADC)** (untuk development)
 
-#### 1. **Enable Authentication in Firebase Console**
+---
 
-1. Go to [Firebase Console](https://console.firebase.google.com/project/jetlink-47eb8)
-2. Navigate to **Authentication** → **Sign-in method**
-3. Enable **Google** sign-in provider
-4. Add your authorized domains (e.g., `localhost` for development)
+## **Opsi 1: Service Account Key (RECOMMENDED)**
 
-#### 2. **Get Service Account Key (Optional - for production)**
+### **Step 1: Download Service Account Key**
 
-For production deployment, you'll need a service account key:
+1. Buka link ini: https://console.firebase.google.com/project/jetlink-47eb8/settings/serviceaccounts/adminsdk
 
-1. Go to **Project Settings** → **Service Accounts**
-2. Click **Generate New Private Key**
-3. Save the JSON file as `serviceAccountKey.json` in the backend directory
-4. Update `.env`:
+2. Klik tombol **"Generate new private key"**
+
+3. Klik **"Generate key"** untuk download file JSON
+
+4. Simpan file JSON dengan nama `serviceAccountKey.json` di folder:
    ```
-   FIREBASE_SERVICE_ACCOUNT_KEY=./serviceAccountKey.json
+   /home/ferdifir/development/jet/backend/serviceAccountKey.json
    ```
 
-#### 3. **Development Mode (No Service Account Key)**
-
-For development, Firebase Admin SDK will use Application Default Credentials (ADC):
+### **Step 2: Buat File `.env`**
 
 ```bash
-# Install gcloud CLI if not already installed
-# Login with your Google account
-gcloud auth application-default login
-
-# Set the project
-gcloud config set project jetlink-47eb8
-```
-
-The SDK will automatically authenticate using your logged-in account.
-
-#### 4. **Update Environment Variables**
-
-Copy `.env.example` to `.env`:
-
-```bash
+cd /home/ferdifir/development/jet/backend
 cp .env.example .env
 ```
 
-Update the following variables:
+### **Step 3: Edit `.env`**
+
+Buka file `.env` dan tambahkan:
 
 ```env
-# Firebase
+# Firebase Configuration
 FIREBASE_PROJECT_ID=jetlink-47eb8
+FIREBASE_SERVICE_ACCOUNT_KEY=./serviceAccountKey.json
 
-# Database
-MYSQL_DSN=user:password@tcp(localhost:3306)/jetlink?charset=utf8mb4&parseTime=True&loc=Local
+# Database Configuration
+MYSQL_DSN=ferdifir:WsQ4g|1N4"56@tcp(localhost:3306)/jetlink?charset=utf8mb4&parseTime=True&loc=Local
 
-# Server
+# Server Configuration
 SERVER_ADDR=:8080
 ```
 
-#### 5. **Run Backend**
+### **Step 4: Jalankan Backend**
 
 ```bash
+cd /home/ferdifir/development/jet/backend
 go run cmd/server/main.go
 ```
 
-You should see:
+**Expected Output:**
 ```
+INFO: Firebase: Using service account key: ./serviceAccountKey.json
 INFO: Firebase Admin SDK initialized successfully
 INFO: Connected to MySQL...
-INFO: Connected to Redis...
 ```
 
-## Testing
+✅ **Sekarang token verification sudah aktif!**
 
-### Test Token Verification
+---
 
-1. **Get Firebase ID Token from Frontend:**
-   ```javascript
-   const user = firebase.auth().currentUser;
-   const token = await user.getIdToken();
-   console.log(token);
-   ```
+## **Opsi 2: Application Default Credentials (Development Only)**
 
-2. **Test API with Token:**
+Gunakan ini kalau tidak mau download service account key.
+
+### **Step 1: Install gcloud CLI**
+
+Jika belum install:
+```bash
+# Ubuntu/Debian
+curl https://sdk.cloud.google.com | bash
+exec -l $SHELL
+gcloud init
+```
+
+### **Step 2: Login dengan Google Account**
+
+```bash
+gcloud auth application-default login
+```
+
+Browser akan terbuka, login dengan akun Google yang punya akses ke Firebase project `jetlink-47eb8`.
+
+### **Step 3: Set Project**
+
+```bash
+gcloud config set project jetlink-47eb8
+```
+
+### **Step 4: Buat File `.env`**
+
+```bash
+cd /home/ferdifir/development/jet/backend
+cp .env.example .env
+```
+
+### **Step 5: Edit `.env`**
+
+```env
+# Firebase Configuration
+FIREBASE_PROJECT_ID=jetlink-47eb8
+# COMMENT OUT service account key line
+# FIREBASE_SERVICE_ACCOUNT_KEY=./serviceAccountKey.json
+
+# Database Configuration
+MYSQL_DSN=ferdifir:WsQ4g|1N4"56@tcp(localhost:3306)/jetlink?charset=utf8mb4&parseTime=True&loc=Local
+
+# Server Configuration
+SERVER_ADDR=:8080
+```
+
+### **Step 6: Jalankan Backend**
+
+```bash
+cd /home/ferdifir/development/jet/backend
+go run cmd/server/main.go
+```
+
+**Expected Output:**
+```
+INFO: Firebase: No service account key provided, using Application Default Credentials
+INFO: Firebase Admin SDK initialized successfully
+INFO: Connected to MySQL...
+```
+
+✅ **Sekarang token verification sudah aktif!**
+
+---
+
+## **Testing Token Verification**
+
+### **1. Get Firebase ID Token dari Flutter App**
+
+Di Flutter app, setelah login dengan Google:
+
+```dart
+final user = FirebaseAuth.instance.currentUser;
+final idToken = await user?.getIdToken();
+print('ID Token: $idToken');
+```
+
+### **2. Test API dengan Token**
+
+```bash
+# Check driver status
+curl -X GET http://localhost:8080/api/auth/driver-status \
+  -H "Authorization: Bearer <your-firebase-token-here>"
+
+# Expected Response (Success):
+{
+  "success": true,
+  "data": {
+    "isDriver": true,
+    "isVerified": true,
+    ...
+  }
+}
+
+# Expected Response (Unauthorized):
+# Jika token tidak valid atau tidak ada
+```
+
+---
+
+## **Troubleshooting**
+
+### **Error: "Firebase initialization failed: dial tcp: lookup oauth2.googleapis.com"**
+
+**Problem:** Tidak ada koneksi internet atau DNS issue.
+
+**Solution:**
+- Check koneksi internet
+- Restart router jika perlu
+
+### **Error: "Firebase initialization failed: credentials: could not find default credentials"**
+
+**Problem:** ADC tidak setup atau service account key tidak ditemukan.
+
+**Solution:**
+- **Opsi 1:** Pastikan `serviceAccountKey.json` ada di folder backend
+- **Opsi 2:** Jalankan `gcloud auth application-default login`
+
+### **Error: "Invalid token" saat test API**
+
+**Problem:** Token expired atau tidak valid.
+
+**Solution:**
+- Token Firebase expire setelah 1 jam
+- Get fresh token dari Flutter app
+- Pastikan token dari project yang benar (`jetlink-47eb8`)
+
+### **Log: "Firebase token verification will not be available"**
+
+**Problem:** Firebase Admin SDK tidak bisa initialize.
+
+**Solution:**
+- Check `.env` file ada dan konfigurasi benar
+- Check `serviceAccountKey.json` file ada (kalau pakai Opsi 1)
+- Check `gcloud auth application-default login` sudah dijalankan (kalau pakai Opsi 2)
+
+---
+
+## **Production Deployment**
+
+Untuk production, **WAJIB pakai Service Account Key**:
+
+1. Download service account key dari Firebase Console
+2. Simpan di secure location (bukan di git!)
+3. Set environment variable di production server:
    ```bash
-   curl -X GET http://localhost:8080/api/auth/driver-status \
-     -H "Authorization: Bearer <your-firebase-token>"
+   export FIREBASE_SERVICE_ACCOUNT_KEY=/path/to/serviceAccountKey.json
    ```
+4. Restart backend service
 
-3. **Expected Response:**
-   ```json
-   {
-     "success": true,
-     "data": {
-       "isDriver": true,
-       "isVerified": true,
-       "vehicleType": "Toyota Avanza",
-       "vehiclePlate": "B 1234 ABC",
-       ...
-     }
-   }
-   ```
+---
 
-## Troubleshooting
+## **Security Notes**
 
-### Error: "Firebase initialization failed"
+⚠️ **JANGAN commit `serviceAccountKey.json` ke Git!**
 
-- Make sure you have run `gcloud auth application-default login`
-- Check that your Google account has access to the Firebase project
-- Verify `FIREBASE_PROJECT_ID` is correct in `.env`
+File `.gitignore` sudah include:
+```
+serviceAccountKey.json
+*.json
+```
 
-### Error: "Invalid token"
+Tapi tetap double-check sebelum commit!
 
-- Make sure the token is not expired (tokens expire after 1 hour)
-- Check that Firebase Authentication is enabled in the Firebase Console
-- Verify the token is from the correct Firebase project
+---
 
-### Error: "Missing Authorization header"
+## **Summary**
 
-- Make sure you're sending the token in the Authorization header
-- Format should be: `Authorization: Bearer <token>`
+| Method | Use Case | Security | Setup Complexity |
+|--------|----------|----------|------------------|
+| Service Account Key | Production | High | Easy |
+| ADC (gcloud login) | Development | Medium | Very Easy |
+
+**Recommendation:**
+- **Development:** Pakai ADC (gcloud login)
+- **Production:** Pakai Service Account Key

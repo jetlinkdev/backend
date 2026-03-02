@@ -83,21 +83,30 @@ func GetUser(ctx context.Context, uid string) (*auth.UserRecord, error) {
 	return user, nil
 }
 
-// InitFirebaseWithConfig initializes Firebase using project config
-// This is for when you don't have a service account key file
-func InitFirebaseWithConfig(projectID string) error {
+// InitFirebaseWithConfig initializes Firebase using service account key or ADC
+func InitFirebaseWithConfig(projectID, serviceAccountKeyPath string) error {
 	ctx := context.Background()
 
-	// Initialize with project ID
+	// Initialize with service account key if provided
+	var opts []option.ClientOption
+	if serviceAccountKeyPath != "" {
+		opts = append(opts, option.WithCredentialsFile(serviceAccountKeyPath))
+		fmt.Printf("Firebase: Using service account key: %s\n", serviceAccountKeyPath)
+	} else {
+		fmt.Println("Firebase: No service account key provided, using Application Default Credentials")
+	}
+
 	config := &firebase.Config{
 		ProjectID: projectID,
 	}
 
-	app, err := firebase.NewApp(ctx, config)
+	// Initialize Firebase app
+	app, err := firebase.NewApp(ctx, config, opts...)
 	if err != nil {
 		return fmt.Errorf("error initializing firebase app: %v", err)
 	}
 
+	// Get auth client
 	authClient, err := app.Auth(ctx)
 	if err != nil {
 		return fmt.Errorf("error getting auth client: %v", err)
@@ -108,5 +117,6 @@ func InitFirebaseWithConfig(projectID string) error {
 		Auth: authClient,
 	}
 
+	fmt.Println("Firebase Admin SDK initialized successfully")
 	return nil
 }

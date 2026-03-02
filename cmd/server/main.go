@@ -32,9 +32,12 @@ func main() {
 
 	// Initialize Firebase Admin SDK
 	firebaseProjectID := utils.GetEnv("FIREBASE_PROJECT_ID", "jetlink-47eb8")
-	if err := firebase.InitFirebaseWithConfig(firebaseProjectID); err != nil {
+	firebaseServiceAccountKey := utils.GetEnv("FIREBASE_SERVICE_ACCOUNT_KEY", "")
+	
+	if err := firebase.InitFirebaseWithConfig(firebaseProjectID, firebaseServiceAccountKey); err != nil {
 		logger.Warn(fmt.Sprintf("Firebase initialization failed: %v", err))
 		logger.Info("Firebase token verification will not be available")
+		logger.Info("To enable: Set FIREBASE_SERVICE_ACCOUNT_KEY in .env or run 'gcloud auth application-default login'")
 	} else {
 		logger.Info("Firebase Admin SDK initialized successfully")
 	}
