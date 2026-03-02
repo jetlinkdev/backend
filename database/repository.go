@@ -60,9 +60,17 @@ func (r *OrderRepository) CreateOrder(order *models.Order) error {
 		etaValue = nil
 	}
 
+	// Convert empty string to nil for driver_id to satisfy foreign key constraint
+	var driverID interface{}
+	if order.DriverID == "" {
+		driverID = sql.NullString{String: "", Valid: false} // NULL
+	} else {
+		driverID = order.DriverID
+	}
+
 	result, err := stmt.Exec(
 		order.UserID,
-		order.DriverID,
+		driverID,
 		order.Pickup,
 		order.PickupLatitude,
 		order.PickupLongitude,
@@ -109,10 +117,12 @@ func (r *OrderRepository) GetOrder(id int64) (*models.Order, error) {
 	var timeValue sql.NullInt64
 	var etaValue sql.NullInt64
 	var deletedAt sql.NullInt64
+	var driverIDNull sql.NullString
+
 	err := row.Scan(
 		&order.ID,
 		&order.UserID,
-		&order.DriverID,
+		&driverIDNull,
 		&order.Pickup,
 		&order.PickupLatitude,
 		&order.PickupLongitude,
@@ -136,6 +146,13 @@ func (r *OrderRepository) GetOrder(id int64) (*models.Order, error) {
 			return nil, fmt.Errorf("order with id %d not found", id)
 		}
 		return nil, fmt.Errorf("failed to get order: %v", err)
+	}
+
+	// Handle nullable driver_id field
+	if driverIDNull.Valid {
+		order.DriverID = driverIDNull.String
+	} else {
+		order.DriverID = ""
 	}
 
 	// Handle nullable time field
@@ -190,9 +207,17 @@ func (r *OrderRepository) UpdateOrder(order *models.Order) error {
 		etaValue = nil
 	}
 
+	// Convert empty string to nil for driver_id to satisfy foreign key constraint
+	var driverID interface{}
+	if order.DriverID == "" {
+		driverID = sql.NullString{String: "", Valid: false} // NULL
+	} else {
+		driverID = order.DriverID
+	}
+
 	_, err = stmt.Exec(
 		order.UserID,
-		order.DriverID,
+		driverID,
 		order.Pickup,
 		order.PickupLatitude,
 		order.PickupLongitude,
@@ -235,10 +260,11 @@ func (r *OrderRepository) GetOrdersByUserID(userID string) ([]*models.Order, err
 		var timeValue sql.NullInt64
 		var etaValue sql.NullInt64
 		var deletedAt sql.NullInt64
+		var driverIDNull sql.NullString
 		err := rows.Scan(
 			&order.ID,
 			&order.UserID,
-			&order.DriverID,
+			&driverIDNull,
 			&order.Pickup,
 			&order.PickupLatitude,
 			&order.PickupLongitude,
@@ -258,6 +284,13 @@ func (r *OrderRepository) GetOrdersByUserID(userID string) ([]*models.Order, err
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan order: %v", err)
+		}
+
+		// Handle nullable driver_id field
+		if driverIDNull.Valid {
+			order.DriverID = driverIDNull.String
+		} else {
+			order.DriverID = ""
 		}
 
 		// Handle nullable time field
@@ -300,10 +333,11 @@ func (r *OrderRepository) GetOrdersByStatus(status string) ([]*models.Order, err
 		var timeValue sql.NullInt64
 		var etaValue sql.NullInt64
 		var deletedAt sql.NullInt64
+		var driverIDNull sql.NullString
 		err := rows.Scan(
 			&order.ID,
 			&order.UserID,
-			&order.DriverID,
+			&driverIDNull,
 			&order.Pickup,
 			&order.PickupLatitude,
 			&order.PickupLongitude,
@@ -323,6 +357,13 @@ func (r *OrderRepository) GetOrdersByStatus(status string) ([]*models.Order, err
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan order: %v", err)
+		}
+
+		// Handle nullable driver_id field
+		if driverIDNull.Valid {
+			order.DriverID = driverIDNull.String
+		} else {
+			order.DriverID = ""
 		}
 
 		// Handle nullable time field
@@ -365,10 +406,11 @@ func (r *OrderRepository) GetAllOrders() ([]*models.Order, error) {
 		var timeValue sql.NullInt64
 		var etaValue sql.NullInt64
 		var deletedAt sql.NullInt64
+		var driverIDNull sql.NullString
 		err := rows.Scan(
 			&order.ID,
 			&order.UserID,
-			&order.DriverID,
+			&driverIDNull,
 			&order.Pickup,
 			&order.PickupLatitude,
 			&order.PickupLongitude,
@@ -388,6 +430,13 @@ func (r *OrderRepository) GetAllOrders() ([]*models.Order, error) {
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan order: %v", err)
+		}
+
+		// Handle nullable driver_id field
+		if driverIDNull.Valid {
+			order.DriverID = driverIDNull.String
+		} else {
+			order.DriverID = ""
 		}
 
 		// Handle nullable time field

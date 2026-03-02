@@ -8,10 +8,11 @@ import (
 
 	hubhandlers "jetlink/handlers"
 	"jetlink/database"
+	"jetlink/firebase"
 	"jetlink/redis"
-	"jetlink/utils"
 	"jetlink/routes"
 	"jetlink/server"
+	"jetlink/utils"
 )
 
 var (
@@ -28,6 +29,15 @@ func main() {
 
 	// Initialize logger
 	logger := utils.NewLogger()
+
+	// Initialize Firebase Admin SDK
+	firebaseProjectID := utils.GetEnv("FIREBASE_PROJECT_ID", "jetlink-47eb8")
+	if err := firebase.InitFirebaseWithConfig(firebaseProjectID); err != nil {
+		logger.Warn(fmt.Sprintf("Firebase initialization failed: %v", err))
+		logger.Info("Firebase token verification will not be available")
+	} else {
+		logger.Info("Firebase Admin SDK initialized successfully")
+	}
 
 	// Get MySQL DSN from environment or use default
 	mysqlDSN := utils.GetEnv("MYSQL_DSN", "root:~Densus_88@tcp(localhost:3306)/jetlink?charset=utf8mb4&parseTime=True&loc=Local")

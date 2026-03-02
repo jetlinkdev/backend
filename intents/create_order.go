@@ -14,6 +14,9 @@ import (
 
 // HandleCreateOrder handles the create_order intent
 func HandleCreateOrder(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.Logger, incomingMsg hubhandlers.Message, repo *database.OrderRepository) {
+	// Log client state for debugging
+	logger.Info(fmt.Sprintf("CreateOrder request - Client ID: %s, UserID: %s, Role: %s", client.ID, client.UserID, client.Role))
+
 	// Extract the order data from the incoming message
 	orderData, ok := incomingMsg.Data.(map[string]interface{})
 	if !ok {
@@ -34,10 +37,11 @@ func HandleCreateOrder(client *hubhandlers.Client, hub *hubhandlers.Hub, logger 
 	userID := client.UserID
 	if userID == "" {
 		logger.Error("User not authenticated (no UserID in client session)")
+		logger.Error(fmt.Sprintf("Client ID: %s, UserID: %s, Role: %s", client.ID, client.UserID, client.Role))
 
 		errorMsg := hubhandlers.Message{
 			Intent:    constants.IntentError,
-			Data:      map[string]string{"message": "User not authenticated"},
+			Data:      map[string]string{"message": "User not authenticated. Please login again."},
 			Timestamp: time.Now().Unix(),
 			ClientID:  client.ID,
 		}

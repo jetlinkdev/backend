@@ -212,6 +212,9 @@ func HandleAuth(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.
 			// Update last login
 			userRepo.UpdateLastLogin(firebaseUID)
 
+			// Associate client with user
+			hub.AssociateClientWithUser(client, firebaseUID)
+
 			// Send success response
 			successMsg := hubhandlers.Message{
 				Intent: constants.IntentAuthSuccess,
@@ -258,6 +261,9 @@ func HandleAuth(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.
 		}
 
 		logger.Info(fmt.Sprintf("New customer registered: %s", email))
+
+		// Associate client with user
+		hub.AssociateClientWithUser(client, firebaseUID)
 
 		// Send success response
 		successMsg := hubhandlers.Message{
@@ -453,47 +459,130 @@ func HandleDriverRegistration(client *hubhandlers.Client, hub *hubhandlers.Hub, 
 		return
 	}
 
+	// If user doesn't exist, create new user with complete profile data
 	if user == nil {
-		logger.Error("User not found")
-		sendError(client, "User not found. Please login first.", incomingMsg)
-		return
+		logger.Info("User not found, creating new user with driver profile")
+
+		// Extract profile data
+		email, ok := regData["email"].(string)
+		if !ok || email == "" {
+			sendError(client, "Missing email", incomingMsg)
+			return
+		}
+
+		displayName, ok := regData["displayName"].(string)
+		if !ok || displayName == "" {
+			sendError(client, "Missing display name", incomingMsg)
+			return
+		}
+
+		phoneNumber, _ := regData["phoneNumber"].(string)
+		photoURL, _ := regData["photoURL"].(string)
+
+		// Extract driver data
+		vehicleType, ok := regData["vehicleType"].(string)
+		if !ok || vehicleType == "" {
+			sendError(client, "Missing vehicle type", incomingMsg)
+			return
+		}
+
+		vehiclePlate, ok := regData["vehiclePlate"].(string)
+		if !ok || vehiclePlate == "" {
+			sendError(client, "Missing vehicle plate", incomingMsg)
+			return
+		}
+
+		// Create new user with driver role
+		user = &models.User{
+			ID:            firebaseUID,
+			Email:         email,
+			DisplayName:   displayName,
+			PhotoURL:      photoURL,
+			PhoneNumber:   phoneNumber,
+			Role:          "driver",
+			VehicleType:   vehicleType,
+			VehiclePlate:  vehiclePlate,
+			IsVerified:    true,
+			DriverRating:  0.0,
+			TotalTrips:    0,
+			CreatedAt:     time.Now().Unix(),
+			UpdatedAt:     time.Now().Unix(),
+		}
+
+		err = userRepo.CreateUser(user)
+		if err != nil {
+			logger.Error(fmt.Sprintf("Failed to create driver: %v", err))
+			sendError(client, "Failed to create driver", incomingMsg)
+			return
+		}
+
+		logger.Info(fmt.Sprintf("New driver registered: %s (%s)", email, vehiclePlate))
+	} else {
+		// User exists, update profile if new data provided
+		if email, ok := regData["email"].(string); ok && email != "" && user.Email == "" {
+			user.Email = email
+		}
+		if displayName, ok := regData["displayName"].(string); ok && displayName != "" && user.DisplayName == "" {
+			user.DisplayName = displayName
+		}
+		if phoneNumber, ok := regData["phoneNumber"].(string); ok && phoneNumber != "" {
+			user.PhoneNumber = phoneNumber
+		}
+
+		// Check if already registered as driver
+		if user.Role == "driver" {
+			logger.Info("User is already registered as driver")
+			// Send success response (idempotent)
+			successMsg := hubhandlers.Message{
+				Intent: constants.IntentDriverRegistered,
+				Data: map[string]interface{}{
+					"user": map[string]interface{}{
+						"id":           user.ID,
+						"email":        user.Email,
+						"displayName":  user.DisplayName,
+						"role":         "driver",
+						"isVerified":   user.IsVerified,
+						"vehicleType":  user.VehicleType,
+						"vehiclePlate": user.VehiclePlate,
+					},
+					"message": "Already registered as driver",
+				},
+				Timestamp: time.Now().Unix(),
+				ClientID:  client.ID,
+			}
+			client.Send <- successMsg.ToJSON()
+			return
+		}
+
+		// Extract driver data
+		vehicleType, ok := regData["vehicleType"].(string)
+		if !ok || vehicleType == "" {
+			sendError(client, "Missing vehicle type", incomingMsg)
+			return
+		}
+
+		vehiclePlate, ok := regData["vehiclePlate"].(string)
+		if !ok || vehiclePlate == "" {
+			sendError(client, "Missing vehicle plate", incomingMsg)
+			return
+		}
+
+		// Update user with driver info
+		user.VehicleType = vehicleType
+		user.VehiclePlate = vehiclePlate
+		user.Role = "driver"
+		user.IsVerified = true
+		user.UpdatedAt = time.Now().Unix()
+
+		err = userRepo.RegisterDriver(user)
+		if err != nil {
+			logger.Error(fmt.Sprintf("Failed to register driver: %v", err))
+			sendError(client, "Failed to register driver", incomingMsg)
+			return
+		}
+
+		logger.Info(fmt.Sprintf("Driver registered: %s (%s)", user.Email, vehiclePlate))
 	}
-
-	// Check if already registered as driver
-	if user.Role == "driver" {
-		logger.Error("User is already registered as driver")
-		sendError(client, "Already registered as driver", incomingMsg)
-		return
-	}
-
-	// Extract driver data
-	vehicleType, ok := regData["vehicleType"].(string)
-	if !ok || vehicleType == "" {
-		sendError(client, "Missing vehicle type", incomingMsg)
-		return
-	}
-
-	vehiclePlate, ok := regData["vehiclePlate"].(string)
-	if !ok || vehiclePlate == "" {
-		sendError(client, "Missing vehicle plate", incomingMsg)
-		return
-	}
-
-	// Update user with driver info
-	user.VehicleType = vehicleType
-	user.VehiclePlate = vehiclePlate
-	user.Role = "driver"
-	user.IsVerified = true
-	user.UpdatedAt = time.Now().Unix()
-
-	err = userRepo.RegisterDriver(user)
-	if err != nil {
-		logger.Error(fmt.Sprintf("Failed to register driver: %v", err))
-		sendError(client, "Failed to register driver", incomingMsg)
-		return
-	}
-
-	logger.Info(fmt.Sprintf("Driver registered: %s (%s)", user.Email, vehiclePlate))
 
 	// Send success response
 	successMsg := hubhandlers.Message{
