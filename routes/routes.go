@@ -17,8 +17,8 @@ func SetupRoutes(router *mux.Router, hub *hubhandlers.Hub, logger *utils.Logger,
 	// Create HTTP auth handler
 	authHandler := hubhandlers.NewAuthHTTPHandler(logger, repo.GetDB())
 
-	// Create HTTP bid handler
-	bidHandler := hubhandlers.NewBidHTTPHandler(logger, repo.GetDB())
+	// Create HTTP bid handler with hub reference
+	bidHandler := hubhandlers.NewBidHTTPHandler(logger, repo.GetDB(), hub)
 
 	// Create Firebase auth middleware
 	authMiddleware := hubhandlers.FirebaseAuthMiddleware(logger)

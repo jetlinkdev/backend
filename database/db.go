@@ -90,6 +90,7 @@ func (db *DB) createTables() error {
 		fare DECIMAL(10, 2),
 		bid_price DECIMAL(10, 2),
 		estimated_arrival_time TIMESTAMP NULL,
+		route_coordinates TEXT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 		deleted_at TIMESTAMP NULL,

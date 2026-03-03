@@ -18,6 +18,7 @@ type Order struct {
 	Fare                  float64 `json:"fare,omitempty"`
 	BidPrice              float64 `json:"bidPrice,omitempty"`
 	EstimatedArrivalTime  *int64  `json:"estimatedArrivalTime,omitempty"` // Timestamp waktu tiba di tempat jemput
+	RouteCoordinates      string  `json:"routeCoordinates,omitempty"`     // Route coordinates from OSRM (stringified array)
 	CreatedAt             int64   `json:"createdAt"`
 	UpdatedAt             int64   `json:"updatedAt"`
 	DeletedAt             *int64  `json:"deletedAt,omitempty"`
@@ -35,6 +36,7 @@ type CreateOrderRequest struct {
 	Time                 *int64  `json:"time,omitempty"` // Nullable timestamp
 	Payment              string  `json:"payment"`
 	UserID               string  `json:"userId,omitempty"` // Optional field for user identification
+	RouteCoordinates     string  `json:"routeCoordinates,omitempty"` // Route coordinates from OSRM (stringified array)
 }
 
 // SubmitBidRequest represents the data for submitting a bid on an order
