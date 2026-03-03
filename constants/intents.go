@@ -33,4 +33,5 @@ const (
 	IntentCheckDriverStatus  = "check_driver_status"
 	IntentDriverStatus       = "driver_status"
 	IntentUpdateDriverStatus = "update_driver_status"
+	IntentSyncActiveOrders   = "sync_active_orders"
 )

@@ -55,6 +55,12 @@ func HandleUpdateDriverStatus(client *hubhandlers.Client, hub *hubhandlers.Hub, 
 
 	logger.Info(fmt.Sprintf("Driver %s status updated to: %s", firebaseUID, newStatus))
 
+	// Sync active orders if driver just went online
+	if newStatus == "available" {
+		logger.Info(fmt.Sprintf("Driver %s is now available, syncing active orders", firebaseUID))
+		HandleSyncActiveOrders(client, hub, logger, repo)
+	}
+
 	// Send success response
 	successMsg := hubhandlers.Message{
 		Intent: constants.IntentDriverStatus,

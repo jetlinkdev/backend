@@ -63,6 +63,11 @@ func HandleAuth(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.
 			}
 			client.DriverStatus = driverStatus
 			logger.Info(fmt.Sprintf("Driver %s connected with status: %s", firebaseUID, driverStatus))
+			
+			// Sync active orders to driver if status is available
+			if driverStatus == "available" {
+				HandleSyncActiveOrders(client, hub, logger, repo)
+			}
 		}
 
 		// Check if user has active order and sync state
