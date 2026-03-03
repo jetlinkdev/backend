@@ -309,12 +309,20 @@ func HandleCreateOrder(client *hubhandlers.Client, hub *hubhandlers.Hub, logger 
 		Timestamp: time.Now().Unix(),
 	}
 
-	// Send to all clients EXCEPT this user's connections
+	// Send to ONLINE drivers only (filter by DriverStatus)
 	hub.Mu.RLock()
 	for c := range hub.Clients {
-		if c.UserID != userID { // Skip user's own connections
+		// Skip user's own connections
+		if c.UserID == userID {
+			continue
+		}
+		
+		// Only send to drivers who are "available"
+		if c.Role == "driver" && c.DriverStatus == "available" {
 			c.Send <- broadcastMsg.ToJSON()
 		}
 	}
 	hub.Mu.RUnlock()
+	
+	logger.Info(fmt.Sprintf("Order %d broadcast to available drivers only", order.ID))
 }

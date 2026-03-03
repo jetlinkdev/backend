@@ -199,6 +199,8 @@ func listenForMessages(client *hubhandlers.Client, hub *hubhandlers.Hub, logger 
 			intents.HandleDriverRegistration(client, hub, logger, incomingMsg, repo)
 		case constants.IntentCheckDriverStatus:
 			intents.HandleCheckDriverStatus(client, hub, logger, incomingMsg, repo)
+		case constants.IntentUpdateDriverStatus:
+			intents.HandleUpdateDriverStatus(client, hub, logger, incomingMsg, repo)
 		case constants.IntentCreateOrder:
 			intents.HandleCreateOrder(client, hub, logger, incomingMsg, repo)
 		case constants.IntentCancelOrder:

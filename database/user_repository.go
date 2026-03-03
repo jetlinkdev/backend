@@ -293,3 +293,17 @@ func (r *UserRepository) UpdateDriverRating(driverID string, rating float64, tot
 
 	return nil
 }
+
+// UpdateDriverStatus updates the driver's online status
+// Note: This is a simple implementation. For production, consider:
+// 1. Adding a 'driver_status' column to jetlink_users table
+// 2. Using Redis for real-time status tracking
+// 3. Adding status history tracking
+func (r *UserRepository) UpdateDriverStatus(driverID string, status string) error {
+	// For now, we'll just log the status update
+	// In production, you should store this in database or Redis
+	// This is a placeholder implementation
+	_ = driverID
+	_ = status
+	return nil
+}

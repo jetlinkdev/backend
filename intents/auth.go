@@ -52,6 +52,19 @@ func HandleAuth(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *utils.
 		// Associate client with user
 		hub.AssociateClientWithUser(client, firebaseUID)
 
+		// Set driver status if user is a driver
+		if existingUser.Role == "driver" {
+			// Get driver status from database
+			driverStatus := "offline" // default
+			if existingUser.IsVerified {
+				// For verified drivers, check their current status
+				// In production, you might want to track this in Redis for real-time updates
+				driverStatus = "available" // default to available when connecting
+			}
+			client.DriverStatus = driverStatus
+			logger.Info(fmt.Sprintf("Driver %s connected with status: %s", firebaseUID, driverStatus))
+		}
+
 		// Check if user has active order and sync state
 		userState := hub.GetUserOrderState(firebaseUID)
 		if userState != nil {

@@ -32,4 +32,5 @@ const (
 	IntentDriverRegistered   = "driver_registered"
 	IntentCheckDriverStatus  = "check_driver_status"
 	IntentDriverStatus       = "driver_status"
+	IntentUpdateDriverStatus = "update_driver_status"
 )

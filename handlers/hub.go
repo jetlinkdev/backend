@@ -15,14 +15,15 @@ import (
 
 // Client represents a connected WebSocket client
 type Client struct {
-	ID        string
-	Conn      *websocket.Conn
-	Send      chan []byte
-	OrderID   *int64  // Current active order ID (stored in Redis, cached here)
-	UserID    string  // User identifier (Firebase UID)
-	Role      string  // "customer" | "driver"
-	mu        sync.Mutex // Mutex to prevent concurrent close
-	closed    bool
+	ID           string
+	Conn         *websocket.Conn
+	Send         chan []byte
+	OrderID      *int64  // Current active order ID (stored in Redis, cached here)
+	UserID       string  // User identifier (Firebase UID)
+	Role         string  // "customer" | "driver"
+	DriverStatus string  // "available" | "busy" | "offline" (for drivers only)
+	mu           sync.Mutex // Mutex to prevent concurrent close
+	closed       bool
 }
 
 // UserOrderState represents the current order state for a user
