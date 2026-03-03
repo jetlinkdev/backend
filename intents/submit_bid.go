@@ -207,7 +207,7 @@ func HandleSubmitBid(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *u
 	}
 	client.Send <- successMsg.ToJSON()
 
-	// Broadcast new bid notification to all clients (including the user who created the order)
+	// Broadcast new bid notification to order owner (customer)
 	broadcastData := map[string]interface{}{
 		"bid_id":                 bid.ID,
 		"order_id":               orderID,
@@ -231,5 +231,14 @@ func HandleSubmitBid(client *hubhandlers.Client, hub *hubhandlers.Hub, logger *u
 		Timestamp: time.Now().Unix(),
 		ClientID:  client.ID,
 	}
-	hub.BroadcastMessage(broadcastMsg)
+	
+	// Send to order owner (user who created the order)
+	if order.UserID != "" {
+		hub.BroadcastToUser(order.UserID, broadcastMsg)
+		logger.Info(fmt.Sprintf("Bid broadcast to order owner %s for order %d", order.UserID, orderID))
+	} else {
+		// Fallback: broadcast to all if user ID not available
+		hub.BroadcastMessage(broadcastMsg)
+		logger.Warn(fmt.Sprintf("Order %d has no user ID, broadcasting to all", orderID))
+	}
 }

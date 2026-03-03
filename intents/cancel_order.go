@@ -147,16 +147,19 @@ func HandleCancelOrder(client *hubhandlers.Client, hub *hubhandlers.Hub, logger 
 	}
 	client.Send <- successMsg.ToJSON()
 
-	// Broadcast cancellation notification to other relevant clients (drivers, etc.)
+	// Broadcast cancellation notification to ALL drivers
 	broadcastMsg := hubhandlers.Message{
 		Intent: constants.IntentOrderCancelled,
 		Data: map[string]interface{}{
-			"orderId": orderID,
-			"status":  "cancelled",
-			"reason":  reason,
+			"order_id": orderID,
+			"status":   "cancelled",
+			"reason":   reason,
 		},
 		Timestamp: time.Now().Unix(),
 		ClientID:  client.ID,
 	}
+	
+	// Broadcast to all connected drivers so they can update their UI
 	hub.BroadcastMessage(broadcastMsg)
+	logger.Info(fmt.Sprintf("Order %d cancellation broadcast to all drivers", orderID))
 }
