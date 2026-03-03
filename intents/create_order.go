@@ -2,6 +2,7 @@ package intents
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -224,6 +225,19 @@ func HandleCreateOrder(client *hubhandlers.Client, hub *hubhandlers.Hub, logger 
 	}
 	createOrderReq.Payment = payment
 
+	// Extract route_coordinates (stringified JSON array from OSRM)
+	var routeCoordinates string
+	if routeCoords, ok := orderData["route_coordinates"].(string); ok && routeCoords != "" {
+		// Validate that it's a valid JSON array
+		var coordsCheck []interface{}
+		if err := json.Unmarshal([]byte(routeCoords), &coordsCheck); err == nil {
+			routeCoordinates = routeCoords
+			logger.Info(fmt.Sprintf("Route coordinates received with %d points", len(coordsCheck)))
+		} else {
+			logger.Warn(fmt.Sprintf("Invalid route_coordinates format: %v", err))
+		}
+	}
+
 	// Note: We don't use user_id from request data anymore
 	// User ID is extracted from client session (set during auth)
 	// The userID variable is already declared at the top of the function
@@ -241,6 +255,7 @@ func HandleCreateOrder(client *hubhandlers.Client, hub *hubhandlers.Hub, logger 
 		Time:                 createOrderReq.Time,
 		Payment:              createOrderReq.Payment,
 		Status:               "pending", // Initially pending
+		RouteCoordinates:     routeCoordinates, // Store route from OSRM
 		CreatedAt:            time.Now().Unix(),
 		UpdatedAt:            time.Now().Unix(),
 	}
